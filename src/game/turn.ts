@@ -85,7 +85,7 @@ export function apply(prev: GameState, a: Action): GameState {
       need(p.cash >= pr.value, a);
       p.cash -= pr.value;
       pr.owner = p.id;
-      log(s, p.id, `${sqName(s, sq)} を ${pr.value}G で買った`);
+      log(s, p.id, `${sqName(s, sq)}を ${pr.value}G で買った`);
       toStock(s);
       break;
     }
@@ -100,7 +100,7 @@ export function apply(prev: GameState, a: Action): GameState {
       need(amount > 0 && amount <= room && amount <= p.cash, a);
       p.cash -= amount;
       s.props[a.sq]!.value += amount;
-      log(s, p.id, `${target.name} に ${amount}G 増資`);
+      log(s, p.id, `${target.name}に ${amount}G 増資`);
       toStock(s);
       break;
     }
@@ -113,7 +113,7 @@ export function apply(prev: GameState, a: Action): GameState {
       const owner = s.players[pr.owner!];
       p.cash -= price;
       owner.cash += Math.round(price * BUYOUT_OWNER_SHARE);
-      log(s, p.id, `${owner.name} の ${sqName(s, sq)} を ${price}G で買収`);
+      log(s, p.id, `${owner.name}の${sqName(s, sq)}を ${price}G で買収`);
       pr.owner = p.id;
       toStock(s);
       break;
@@ -214,7 +214,7 @@ function atBank(s: GameState) {
     s.phase = 'over';
     s.winner = p.id;
     s.overReason = 'target';
-    log(s, p.id, `目標 ${map.target.toLocaleString()}G に届いて銀行へ。${p.name} の勝ち！`);
+    log(s, p.id, `目標 ${map.target.toLocaleString()}G に届いて銀行へ。${p.name}の勝ち！`);
   }
 }
 
@@ -292,12 +292,12 @@ function payFee(s: GameState, sq: number) {
   const owner = s.players[pr.owner!];
   const amount = fee(s, sq);
   if (amount === 0) {
-    log(s, p.id, `${owner.name} のお店はお休み中。利用料なし`);
+    log(s, p.id, `${owner.name}のお店はお休み中。利用料なし`);
     return;
   }
   p.cash -= amount;
   owner.cash += amount;
-  log(s, p.id, `${owner.name} に利用料 ${amount}G`);
+  log(s, p.id, `${owner.name}に利用料 ${amount}G`);
   const square = map.squares[sq];
   if (s.mode === 'normal' && square.kind === 'shop') {
     const st = square.street!;
@@ -325,7 +325,7 @@ function settle(s: GameState, pid: number) {
     pr!.owner = null;
     pr!.value = map.squares[i].base!;
     delete pr!.facility;
-    log(s, pid, `${map.squares[i].name} を手放した（${got}G）`);
+    log(s, pid, `${map.squares[i].name}を手放した（${got}G）`);
   }
   for (let st = 0; st < p.shares.length && p.cash < 0; st++) {
     while (p.shares[st] > 0 && p.cash < 0) {
@@ -338,7 +338,7 @@ function settle(s: GameState, pid: number) {
   if (p.cash < 0) {
     p.bankrupt = true;
     p.shares = p.shares.map(() => 0);
-    log(s, pid, `${p.name} は破産…`);
+    log(s, pid, `${p.name}は破産…`);
     endBy(s, 'bankrupt');
   }
 }
@@ -353,7 +353,7 @@ function endBy(s: GameState, reason: 'bankrupt' | 'rounds') {
     if (best < 0 || netWorth(s, pl.id) > netWorth(s, best)) best = pl.id;
   }
   s.winner = best;
-  log(s, null, `ゲーム終了。総資産トップの ${s.players[best].name} の勝ち`);
+  log(s, null, `ゲーム終了。総資産トップの${s.players[best].name}の勝ち`);
 }
 
 function nextTurn(s: GameState) {
