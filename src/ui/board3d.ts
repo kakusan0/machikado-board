@@ -1,0 +1,521 @@
+// 3D の盤面（WebGL）。キャンバスは作り直さず、状態が変わったときだけ場面を組み直す
+import { CARDS } from '../game/cards';
+import { getMap, squareXY } from '../game/maps';
+import { netWorth } from '../game/rules';
+import type { GameState } from '../game/state';
+import type { BoardView } from './board2d';
+import { g as gold, h } from './dom';
+import * as G from './gl/geometry';
+import { lookAt, mul, persp, project, type Vec3 } from './gl/math';
+import { Renderer, type Item, type Mesh } from './gl/renderer';
+import * as T from './gl/textures';
+
+export type Detail = 'low' | 'mid' | 'high';
+export const DETAIL_NAMES: Record<Detail, string> = { low: '低', mid: '中', high: '高' };
+
+export interface Board3D {
+  el: HTMLElement;
+  update(s: GameState, v: BoardView): void;
+  setDetail(d: Detail): void;
+  stats(): { triangles: number; textures: number; items: number };
+  destroy(): void;
+}
+
+interface SceneItem extends Item { spin?: number; bob?: number }
+interface Meshes {
+  cube: Mesh; cyl: Mesh; cone: Mesh; sphere: Mesh; prism: Mesh; plane: Mesh; rbox: Mesh;
+  pawn: Mesh; pot: Mesh; lamp: Mesh; dice: Mesh[]; bowl: Mesh;
+}
+
+const SEG: Record<Detail, number> = { low: 12, mid: 24, high: 48 };
+const DPR: Record<Detail, number> = { low: 1, mid: 1.5, high: 2 };
+const SKY: Vec3 = [0.81, 0.86, 0.93];
+export const DICE_MS = 1300; // サイコロが止まるまで
+
+function norm3(v: Vec3): Vec3 { const l = Math.hypot(...v) || 1; return [v[0] / l, v[1] / l, v[2] / l]; }
+// 軸と角度 → 3×3 の回転（列優先）
+function axisAngle([x, y, z]: Vec3, a: number): number[] {
+  const c = Math.cos(a), s = Math.sin(a), t = 1 - c;
+  return [t * x * x + c, t * x * y + s * z, t * x * z - s * y, t * x * y - s * z, t * y * y + c, t * y * z + s * x, t * x * z + s * y, t * y * z - s * x, t * z * z + c];
+}
+// y 軸まわりの回転を掛ける（止まったときの向き）
+function rotY(a: number, m: number[]): number[] {
+  const c = Math.cos(a), s = Math.sin(a);
+  const R = [c, 0, -s, 0, 1, 0, s, 0, c];
+  const o = new Array<number>(9).fill(0);
+  for (let col = 0; col < 3; col++) for (let row = 0; row < 3; row++) for (let k = 0; k < 3; k++) o[col * 3 + row] += R[k * 3 + row] * m[col * 3 + k];
+  return o;
+}
+// サイコロ：上の面が value になるように、面ごとの絵（0〜5 が 1〜6 の目）を決める
+const DICE_FACES = (v: number) => {
+  const top = v - 1, bottom = 6 - v;
+  const rest = [0, 1, 2, 3, 4, 5].filter((k) => k !== top && k !== bottom);
+  return [top, bottom, rest[0], 5 - rest[0], rest[1], 5 - rest[1]];
+};
+
+export function createBoard3D(initial: Detail): Board3D | null {
+  const el = h('div', { class: 'board3d' });
+  const canvas = h('canvas', { 'aria-label': '立体の盤面。ドラッグで回転、ホイールやピンチで拡大、マスをタップで詳しく' });
+  const hud = h('div', { class: 'hud' });
+  const hint = h('div', { class: 'hint' }, '');
+  el.append(canvas, hud, hint);
+  const R = Renderer.create(canvas);
+  if (!R) return null;
+  const r = R;
+
+  let detail = initial;
+  let state: GameState | null = null;
+  let view: BoardView | null = null;
+  let M: Meshes = makeMeshes();
+  let items: SceneItem[] = [];
+  let signature = '';
+  let vp: number[] = [];
+  let lastTris = 0;
+  const cam = { yaw: 0.65 + Math.PI, pitch: 0.95, dist: 9 };
+  let camFor = '';
+  const disp: { pos: Vec3; from: Vec3; to: Vec3; t0: number }[] = [];
+  let diceAnim = { value: 0, t0: 0 };
+
+  function makeMeshes(): Meshes {
+    r.dropMeshes();
+    const seg = SEG[detail];
+    const lat = seg / 2;
+    const rs = detail === 'low' ? 2 : detail === 'mid' ? 4 : 8;
+    return {
+      cube: r.mesh(G.cube()), cyl: r.mesh(G.cylinder(seg)), cone: r.mesh(G.cone(seg)), sphere: r.mesh(G.sphere(lat, seg)),
+      prism: r.mesh(G.prism()), plane: r.mesh(G.plane()), rbox: r.mesh(G.roundedBox(rs, 0.12)),
+      pawn: r.mesh(G.lathe([[.5, 0], [.5, .07], [.42, .12], [.3, .2], [.2, .45], [.16, .62], [.3, .68], [.32, .72], [.16, .76], [0, .78]], seg)),
+      pot: r.mesh(G.lathe([[.32, 0], [.5, .8], [.56, .85], [.56, 1], [0, 1]], seg)),
+      lamp: r.mesh(G.lathe([[.5, 0], [.5, .04], [.18, .08], [.12, .3], [.1, .95], [.18, 1], [0, 1]], seg)),
+      bowl: r.mesh(G.lathe([[.3, 0], [.36, .3], [.5, .6], [.5, 1], [.44, 1], [.42, .7], [0, .7]], seg)),
+      dice: [1, 2, 3, 4, 5, 6].map((v) => r.mesh(G.roundedBox(rs, 0.14, DICE_FACES(v)))),
+    };
+  }
+
+  // ---------- 場面を組む ----------
+  function build(s: GameState) {
+    const map = getMap(s.mapId);
+    const n = map.grid;
+    const off = (n - 1) / 2;
+    const tx = {
+      stone: r.tex('stone', T.stone), cobble: r.tex('cobble', T.cobble), grass: r.tex('grass', T.grass),
+      wood: r.tex('wood', T.wood), bark: r.tex('bark', T.bark), leaves: r.tex('leaves', T.leaves), water: r.tex('water', T.water),
+      bank: r.tex('bank', T.bank), chance: r.tex('chance', T.chance, false), shutter: r.tex('shutter', T.shutter, false),
+      lantern: r.tex('lantern', T.lantern, false),
+    };
+    const out: SceneItem[] = [];
+    const add = (mesh: Mesh, p: Vec3, sc: Vec3, o: Partial<SceneItem> = {}) =>
+      out.push({ mesh, p, s: sc, r: 0, c: [1, 1, 1], tex: r.white, uvs: [1, 1], ...o });
+    const C = T.rgb;
+
+    // 土台・石畳・芝
+    add(M.cube, [0, -0.36, 0], [n + 0.7, 0.3, n + 0.7], { tex: tx.stone, c: C('#8C94A8'), uvs: [n, 1] });
+    add(M.cube, [0, -0.06, 0], [n + 0.3, 0.06, n + 0.3], { tex: tx.cobble, uvs: [n * 1.5, n * 1.5] });
+    add(M.cube, [0, 0, 0], [n - 2.1, 0.05, n - 2.1], { tex: tx.grass, uvs: [n - 2, n - 2] });
+
+    // 盤の縁の柵
+    const posts = detail === 'low' ? 0 : detail === 'mid' ? 6 * n : 12 * n;
+    const L = off + 0.62;
+    for (let i = 0; i < posts; i++) {
+      const t = (i / posts) * 4, side = Math.floor(t), f = t - side;
+      const xz = [[-L + f * 2 * L, -L], [L, -L + f * 2 * L], [L - f * 2 * L, L], [-L, L - f * 2 * L]][side];
+      add(M.cyl, [xz[0], -0.02, xz[1]], [0.05, 0.22, 0.05], { tex: tx.wood });
+    }
+    if (posts) for (const [x, z, sx, sz] of [[0, -L, 2 * L, 0.03], [L, 0, 0.03, 2 * L], [0, L, 2 * L, 0.03], [-L, 0, 0.03, 2 * L]]) {
+      add(M.cube, [x, 0.13, z], [sx, 0.03, sz], { tex: tx.wood, uvs: [n, 1] });
+    }
+
+    // 中央：噴水・木・街灯・ベンチ
+    add(M.cyl, [0, 0.05, 0], [1.0, 0.16, 1.0], { tex: tx.stone, c: C('#E6E8EE'), uvs: [6, 1], shadow: 1.2 });
+    add(M.cyl, [0, 0.07, 0], [0.86, 0.16, 0.86], { tex: tx.water });
+    add(M.bowl, [0, 0.2, 0], [0.5, 0.36, 0.5], { tex: tx.stone, c: C('#EEF0F4') });
+    add(M.sphere, [0, 0.52, 0], [0.16, 0.22, 0.16], { tex: tx.water, bob: 1, alpha: 1 });
+    const inner = (n - 2) / 2 - 0.35;
+    const rand = mulberry(n * 97 + 3);
+    const treeCount = detail === 'low' ? 4 : detail === 'mid' ? 2 * (n - 2) : 5 * (n - 2);
+    const trees: [number, number][] = [];
+    for (let guard = 0; trees.length < treeCount && guard < 4000; guard++) {
+      const x = (rand() * 2 - 1) * inner, z = (rand() * 2 - 1) * inner;
+      if (Math.hypot(x, z) < 1.25 || segDist([x, z], dicePath(n)) < 0.55) continue;
+      if (trees.every(([a, b]) => Math.hypot(a - x, b - z) > 0.5)) trees.push([x, z]);
+    }
+    trees.forEach(([x, z], k) => {
+      add(M.cyl, [x, 0.05, z], [0.09, 0.32, 0.09], { tex: tx.bark, uvs: [2, 1], shadow: 1 });
+      if (k % 2) {
+        for (const [y, w, hh] of [[0.26, 0.55, 0.45], [0.48, 0.44, 0.4], [0.68, 0.3, 0.34]]) add(M.cone, [x, y, z], [w, hh, w], { tex: tx.leaves });
+      } else {
+        add(M.sphere, [x, 0.28, z], [0.55, 0.5, 0.55], { tex: tx.leaves });
+        add(M.sphere, [x + 0.12, 0.5, z - 0.05], [0.36, 0.34, 0.36], { tex: tx.leaves });
+        add(M.sphere, [x - 0.1, 0.48, z + 0.08], [0.32, 0.3, 0.32], { tex: tx.leaves });
+      }
+    });
+    if (detail !== 'low') {
+      const lr = Math.min(1.6, inner);
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
+        const x = Math.cos(a) * lr, z = Math.sin(a) * lr;
+        add(M.lamp, [x, 0.05, z], [0.12, 0.66, 0.12], { c: C('#2B3350'), shadow: 0.5 });
+        add(M.sphere, [x, 0.66, z], [0.16, 0.16, 0.16], { c: C('#FFE7A8'), flat: 1 });
+        add(M.cone, [x, 0.76, z], [0.2, 0.08, 0.2], { c: C('#2B3350') });
+      }
+      for (const [x, z, rot] of [[0.6, 1.2, 0], [-1.2, -0.6, Math.PI / 2], [1.2, -0.7, Math.PI / 2], [-0.6, 1.2, 0]]) {
+        if (Math.abs(x) > inner || Math.abs(z) > inner) continue;
+        add(M.cube, [x, 0.13, z], [0.44, 0.04, 0.15], { tex: tx.wood, r: rot, shadow: 0.6 });
+        add(M.cube, [x, 0.17, z], [0.44, 0.12, 0.03], { tex: tx.wood, r: rot });
+        for (const d of [-0.18, 0.18]) {
+          const [bx, bz] = [x + Math.cos(rot) * d, z - Math.sin(rot) * d];
+          add(M.cube, [bx, 0.05, bz], [0.03, 0.08, 0.13], { c: C('#2B3350'), r: rot });
+        }
+      }
+    }
+
+    // マス
+    map.squares.forEach((sq) => {
+      const [cx, cy] = squareXY(n, sq.id);
+      const x = cx - off, z = cy - off;
+      const rot = cy === 0 ? Math.PI : cx === n - 1 ? Math.PI / 2 : cy === n - 1 ? 0 : -Math.PI / 2;
+      const cs = Math.cos(rot), sn = Math.sin(rot);
+      const at = (lx: number, lz: number): [number, number] => [x + cs * lx + sn * lz, z - sn * lx + cs * lz];
+      const pr = s.props[sq.id];
+      const owner = pr?.owner != null ? s.players[pr.owner] : null;
+      const flag = (y: number) => {
+        if (!owner) return;
+        const [fx, fz] = at(-0.24, -0.2);
+        add(M.cyl, [fx, y, fz], [0.025, 0.42, 0.025], { c: C('#EEF0F4') });
+        add(M.cube, [fx, y + 0.27, fz], [0.02, 0.13, 0.2], { c: C(owner.color), r: rot + Math.PI / 2 });
+        add(M.sphere, [fx, y + 0.42, fz], [0.05, 0.05, 0.05], { c: C('#C9A227') });
+      };
+      const plate = (color: string, tex = tx.stone) => add(M.cube, [x, 0, z], [0.94, 0.06, 0.94], { tex, c: C(color, 0.5), uvs: [1, 1] });
+
+      if (sq.kind === 'shop' || (sq.kind === 'lot' && s.mode === 'normal' && pr?.facility === 'ryogae')) {
+        const isShop = sq.kind === 'shop';
+        const st = isShop ? map.streets[sq.street!] : { name: '', color: '#C9A227' };
+        const kind = isShop ? sq.street! % 3 : 1;
+        const ratio = pr ? pr.value / (sq.base ?? pr.value) : 1;
+        const floors = isShop ? Math.max(1, Math.min(4, 1 + Math.round((ratio - 1) * 1.5))) : 1;
+        const hgt = 0.27 * floors + 0.12;
+        const facadeTex = r.tex(`facade:${st.color}:${kind}`, () => T.facade(st.color, kind));
+        const roofTex = r.tex(`roof:${st.color}:${kind % 2}`, () => T.roof(st.color, kind % 2));
+        const dim: Vec3 = isShop && !owner ? [0.8, 0.8, 0.84] : [1, 1, 1];
+        plate(st.color);
+        add(M.cube, [x, 0.06, z], [0.6, hgt, 0.6], { tex: facadeTex, uvs: [1, floors], r: rot, c: dim, shadow: hgt });
+        add(M.cube, [x, 0.06 + hgt, z], [0.66, 0.035, 0.66], { c: C(st.color, -0.3), r: rot });
+        add(M.prism, [x, 0.095 + hgt, z], [0.7, 0.3, 0.68], { tex: roofTex, uvs: [2, 1.5], r: rot });
+        if (detail === 'high') {
+          const [chx, chz] = at(0.18, -0.12);
+          add(M.cube, [chx, 0.12 + hgt, chz], [0.08, 0.26, 0.08], { tex: r.tex(`facade:${st.color}:0`, () => T.facade(st.color, 0)), uvs: [0.2, 0.5] });
+        }
+        // 入口・看板・日よけ
+        let [dx, dz] = at(0, 0.305);
+        add(M.cube, [dx, 0.06, dz], [0.17, 0.25, 0.02], { tex: tx.wood, r: rot });
+        const label = isShop ? sq.name : '両替所';
+        [dx, dz] = at(0, 0.31);
+        add(M.cube, [dx, 0.33, dz], [0.52, 0.13, 0.024], { tex: r.tex(`sign:${label}:${st.color}`, () => T.sign(label, st.color), false), r: rot });
+        if (owner) {
+          [dx, dz] = at(0, 0.37);
+          add(M.prism, [dx, 0.25, dz], [0.58, 0.07, 0.16], { tex: r.tex(`awning:${owner.color}`, () => T.awning(owner.color)), r: rot });
+        }
+        if (owner?.closed) {
+          [dx, dz] = at(0, 0.318);
+          add(M.cube, [dx, 0.06, dz], [0.5, 0.25, 0.02], { tex: tx.shutter, r: rot });
+        }
+        if (isShop && !owner) {
+          const [px, pz] = at(0.3, 0.44);
+          add(M.cyl, [px, 0.06, pz], [0.025, 0.3, 0.025], { tex: tx.wood });
+          add(M.cube, [px, 0.26, pz], [0.26, 0.12, 0.02], { tex: r.tex('sign:売り物件', () => T.sign('売り物件', '#C8402F', '#C8402F'), false), r: rot });
+        }
+        if (detail !== 'low') for (const sx of [-0.22, 0.22]) {
+          const [qx, qz] = at(sx, 0.4);
+          add(M.pot, [qx, 0.06, qz], [0.1, 0.08, 0.1], { c: C('#B5643A') });
+          add(M.sphere, [qx, 0.11, qz], [0.12, 0.1, 0.12], { tex: tx.leaves });
+        }
+        flag(0.095 + hgt + 0.25);
+      } else if (sq.kind === 'bank') {
+        plate('#C9D2E6');
+        add(M.cube, [x, 0.06, z], [0.6, 1.5, 0.6], { tex: tx.bank, uvs: [1, 3], r: rot, shadow: 1.6 });
+        add(M.cube, [x, 1.56, z], [0.68, 0.08, 0.68], { c: C('#C9A227'), r: rot });
+        add(M.prism, [x, 1.64, z], [0.7, 0.28, 0.5], { c: C('#26314F'), r: rot });
+        let [dx, dz] = at(0, 0.31);
+        add(M.cube, [dx, 1.22, dz], [0.46, 0.15, 0.02], { tex: r.tex('sign:銀行', () => T.sign('銀行', '#C9A227'), false), r: rot });
+        const cols = detail === 'low' ? [-0.24, 0.24] : [-0.27, -0.09, 0.09, 0.27];
+        for (const c0 of cols) { [dx, dz] = at(c0 * 0.85, 0.36); add(M.cyl, [dx, 0.06, dz], [0.07, 0.62, 0.07], { c: C('#F3F0E6') }); }
+        [dx, dz] = at(0, 0.36);
+        add(M.cube, [dx, 0.68, dz], [0.6, 0.05, 0.13], { c: C('#F3F0E6'), r: rot });
+        add(M.prism, [dx, 0.73, dz], [0.6, 0.12, 0.13], { c: C('#F3F0E6'), r: rot });
+      } else if (sq.kind === 'stamp') {
+        const col = ['#F4C27A', '#F5A3C0', '#9EC5F0', '#F2D16B'][sq.stamp!];
+        plate(col);
+        add(M.cyl, [x, 0.06, z], [0.42, 0.1, 0.42], { tex: tx.stone, c: C('#EEF0F4'), shadow: 0.4 });
+        add(M.rbox, [x, 0.2, z], [0.34, 0.34, 0.34], { tex: r.tex(`stamp:${sq.stamp}`, () => T.stamp(sq.stamp!), false), spin: sq.id });
+      } else if (sq.kind === 'chance' || (sq.kind === 'lot' && s.mode === 'easy')) {
+        plate('#F6E3A0');
+        add(M.rbox, [x, 0.14, z], [0.38, 0.38, 0.38], { tex: tx.chance, spin: sq.id, shadow: 0.5 });
+      } else if (sq.kind === 'plaza') {
+        add(M.cube, [x, 0, z], [0.94, 0.06, 0.94], { tex: tx.grass, uvs: [1, 1] });
+        add(M.cyl, [x, 0.06, z], [0.62, 0.1, 0.62], { tex: tx.stone, c: C('#E6E8EE'), shadow: 0.4 });
+        add(M.cyl, [x, 0.07, z], [0.52, 0.1, 0.52], { tex: tx.water });
+        add(M.bowl, [x, 0.12, z], [0.22, 0.16, 0.22], { tex: tx.stone, c: C('#EEF0F4') });
+        const [tx0, tz0] = at(-0.3, -0.3);
+        add(M.cyl, [tx0, 0.06, tz0], [0.07, 0.3, 0.07], { tex: tx.bark });
+        add(M.sphere, [tx0, 0.28, tz0], [0.34, 0.32, 0.34], { tex: tx.leaves, shadow: 0.6 });
+      } else if (sq.kind === 'lot') {
+        add(M.cube, [x, 0, z], [0.94, 0.06, 0.94], { tex: tx.grass, uvs: [1, 1] });
+        if (pr?.facility === 'yatai') {
+          for (const [lx, lz] of [[-0.2, 0.15], [0.2, 0.15], [0, -0.2]]) {
+            const [sx, sz] = at(lx, lz);
+            add(M.cube, [sx, 0.06, sz], [0.28, 0.14, 0.2], { tex: tx.wood, r: rot, shadow: 0.3 });
+            add(M.prism, [sx, 0.28, sz], [0.34, 0.1, 0.26], { tex: r.tex('awning:#E2463B', () => T.awning('#E2463B')), r: rot });
+            for (const d of [-0.12, 0.12]) { const [px, pz] = at(lx + d, lz + 0.09); add(M.cyl, [px, 0.2, pz], [0.015, 0.08, 0.015], { c: C('#2B3350') }); }
+          }
+          const [lx2, lz2] = at(0, 0.42);
+          add(M.cyl, [lx2, 0.2, lz2], [0.12, 0.16, 0.12], { tex: tx.lantern, flat: 0.5 });
+          flag(0.06);
+        } else {
+          const [px, pz] = at(0, 0.3);
+          add(M.cyl, [px, 0.06, pz], [0.025, 0.28, 0.025], { tex: tx.wood });
+          add(M.cube, [px, 0.24, pz], [0.3, 0.13, 0.02], { tex: r.tex('sign:空き地', () => T.sign('空き地', '#3E9B5A', '#3E9B5A'), false), r: rot });
+        }
+      }
+    });
+    items = out;
+  }
+
+  function sig(s: GameState) {
+    return JSON.stringify([s.mapId, s.mode, detail, s.props.map((p) => p && [p.owner, p.value, p.facility ?? '']),
+      s.players.map((p) => [p.color, p.closed])]);
+  }
+
+  // ---------- 動くもの ----------
+  function squareCenter(s: GameState, sq: number): Vec3 {
+    const n = getMap(s.mapId).grid;
+    const [cx, cy] = squareXY(n, sq);
+    return [cx - (n - 1) / 2, 0.06, cy - (n - 1) / 2];
+  }
+  function tokenTargets(s: GameState, v: BoardView): Vec3[] {
+    const pos = v.tokens ?? s.players.map((p) => p.pos);
+    return s.players.map((_, i) => {
+      const c = squareCenter(s, pos[i]);
+      return [c[0] + (i % 2 ? 0.3 : -0.3), 0.06, c[2] + (i < 2 ? -0.3 : 0.3)];
+    });
+  }
+
+  function dynamicItems(t: number): { items: SceneItem[]; overlay: SceneItem[] } {
+    const s = state!, v = view!;
+    const out: SceneItem[] = [];
+    const overlay: SceneItem[] = [];
+    // コマ（1 マスずつ跳ねて進む）
+    const targets = tokenTargets(s, v);
+    s.players.forEach((p, i) => {
+      if (p.bankrupt) return;
+      const d = disp[i] ?? (disp[i] = { pos: targets[i], from: targets[i], to: targets[i], t0: 0 });
+      const tg = targets[i];
+      if (tg[0] !== d.to[0] || tg[2] !== d.to[2]) { d.from = d.pos; d.to = tg; d.t0 = t; }
+      const k = Math.min(1, (t - d.t0) / 160);
+      const e = k * k * (3 - 2 * k);
+      const hop = Math.sin(Math.PI * k) * 0.28 * (d.from === d.to ? 0 : 1);
+      const bounce = i === s.turn && s.phase !== 'over' ? Math.abs(Math.sin(t / 260)) * 0.06 : 0;
+      d.pos = [d.from[0] + (d.to[0] - d.from[0]) * e, 0.06 + hop + bounce, d.from[2] + (d.to[2] - d.from[2]) * e];
+      const C = T.rgb(p.color);
+      out.push({ mesh: M.pawn, p: d.pos, s: [0.26, 0.5, 0.26], r: 0, c: C, tex: r.white, uvs: [1, 1], shadow: 0.5 });
+      out.push({ mesh: M.sphere, p: [d.pos[0], d.pos[1] + 0.36, d.pos[2]], s: [0.17, 0.17, 0.17], r: 0, c: T.rgb(p.color, 0.25), tex: r.white, uvs: [1, 1] });
+      if (i === s.turn) {
+        overlay.push({ mesh: M.cone, p: [d.pos[0], 0.85 + Math.sin(t / 300) * 0.05, d.pos[2]], s: [0.12, -0.16, 0.12], r: t / 500, c: T.rgb('#E0A21B'), tex: r.white, uvs: [1, 1], flat: 0.6 });
+      }
+    });
+    // サイコロ：盤の隅から投げ、はねながら転がって、出た目を上にして止まる
+    if (s.dice) {
+      if (diceAnim.value !== s.dice) diceAnim = { value: s.dice, t0: t };
+      out.push(...diceItems(t));
+    } else diceAnim.value = 0;
+    // 選んだマス
+    if (v.selected != null) {
+      const c = squareCenter(s, v.selected);
+      overlay.push({ mesh: M.plane, p: [c[0], 0.075, c[2]], s: [1, 1, 1], r: 0, c: T.rgb('#F2C230'), tex: r.white, uvs: [1, 1], alpha: 0.45 + Math.sin(t / 200) * 0.2, flat: 1 });
+    }
+    return { items: out, overlay };
+  }
+
+  function diceItems(t: number): SceneItem[] {
+    const n = getMap(state!.mapId).grid;
+    const k = Math.min(1, (t - diceAnim.t0) / DICE_MS);
+    const seed = diceAnim.t0 % 1000;
+    const [[fx, fz], [tx, tz]] = dicePath(n);
+    const from: Vec3 = [fx, 0, fz];
+    const to: Vec3 = [tx, 0, tz];
+    // 進み方は減速、高さは 3 回はねて小さくなる
+    const e = 1 - Math.pow(1 - k, 2.2);
+    const bounces = [[0, 0.45, 0.9], [0.45, 0.75, 0.35], [0.75, 0.92, 0.12]];
+    let y = 0;
+    for (const [a, b, hh] of bounces) if (k >= a && k < b) y = Math.sin(((k - a) / (b - a)) * Math.PI) * hh;
+    // 回転：斜めの軸のまわりに、止まるまでに何周もしてから 0 に戻る
+    const axis = norm3([Math.sin(seed) + 0.3, 0.35, Math.cos(seed) + 0.2]);
+    const angle = Math.pow(1 - k, 1.6) * Math.PI * 2 * 3.25;
+    const size = 0.42;
+    const p: Vec3 = [from[0] + (to[0] - from[0]) * e, 0.06 + y, from[2] + (to[2] - from[2]) * e];
+    const items: SceneItem[] = [{
+      mesh: M.dice[diceAnim.value - 1], p, s: [size, size, size], r: 0, m3: rotY(0.4, axisAngle(axis, angle)),
+      c: [1, 1, 1], tex: r.tex('dice', T.diceAtlas, false), uvs: [1, 1], shadow: 0.35,
+    }];
+    return items;
+  }
+
+  // ---------- 描く ----------
+  let raf = 0;
+  let visible = true;
+  function eye(): Vec3 {
+    const { yaw, pitch, dist } = cam;
+    return [Math.cos(pitch) * Math.sin(yaw) * dist, 0.3 + Math.sin(pitch) * dist, Math.cos(pitch) * Math.cos(yaw) * dist];
+  }
+  function frame(t: number) {
+    raf = 0;
+    if (!state || !view || !visible || document.hidden) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, DPR[detail]);
+    const w = Math.max(1, Math.round(canvas.clientWidth * dpr)), hh = Math.max(1, Math.round(canvas.clientHeight * dpr));
+    if (canvas.width !== w || canvas.height !== hh) { canvas.width = w; canvas.height = hh; }
+    const e = eye();
+    const n = getMap(state.mapId).grid;
+    vp = mul(persp(0.72, w / hh, 0.1, n * 8), lookAt(e, [0, 0.2, 0], [0, 1, 0]));
+    const sunRaw: Vec3 = [0.45, 0.78, 0.35];
+    const sl = Math.hypot(...sunRaw);
+    const sun: Vec3 = [sunRaw[0] / sl, sunRaw[1] / sl, sunRaw[2] / sl];
+    const anim = items.map((it): SceneItem => {
+      if (it.spin !== undefined) return { ...it, p: [it.p[0], it.p[1] + 0.05 + Math.sin(t / 420 + it.spin) * 0.06, it.p[2]], r: t / 1300 + it.spin };
+      if (it.bob) return { ...it, p: [it.p[0], it.p[1] + Math.sin(t / 300) * 0.02, it.p[2]] };
+      return it;
+    });
+    const dyn = dynamicItems(t);
+    const all = [...anim, ...dyn.items];
+    const tris = all.reduce((a, it) => a + it.mesh.count / 3, 0);
+    if (tris !== lastTris) { lastTris = tris; hint.textContent = `三角形 ${Math.round(tris).toLocaleString()}・テクスチャ ${r.textureCount} 枚`; el.dataset.triangles = String(Math.round(tris)); el.dataset.textures = String(r.textureCount); }
+    r.frame({ w, h: hh, vp, eye: e, sun, sky: SKY, fog: [n * 1.6, n * 3.2], items: all, blob: r.tex('blob', T.blob, false), plane: M.plane, overlay: dyn.overlay });
+    raf = requestAnimationFrame(frame);
+  }
+  const kick = () => { if (!raf) raf = requestAnimationFrame(frame); };
+
+  // ---------- 操作 ----------
+  const pointers = new Map<number, { x: number; y: number }>();
+  let moved = 0;
+  let pinch = 0;
+  canvas.addEventListener('pointerdown', (e) => {
+    canvas.setPointerCapture(e.pointerId);
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 1) moved = 0;
+    if (pointers.size === 2) { const [a, b] = [...pointers.values()]; pinch = Math.hypot(a.x - b.x, a.y - b.y); }
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    const p = pointers.get(e.pointerId);
+    if (!p) return;
+    const dx = e.clientX - p.x, dy = e.clientY - p.y;
+    p.x = e.clientX; p.y = e.clientY;
+    moved += Math.abs(dx) + Math.abs(dy);
+    if (pointers.size === 2) {
+      const [a, b] = [...pointers.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      if (pinch > 0) zoom(pinch / d);
+      pinch = d;
+      return;
+    }
+    cam.yaw -= dx * 0.008;
+    cam.pitch = Math.min(1.45, Math.max(0.2, cam.pitch + dy * 0.006));
+  });
+  const up = (e: PointerEvent) => {
+    if (pointers.size === 1 && moved < 6) pick(e);
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) pinch = 0;
+  };
+  canvas.addEventListener('pointerup', up);
+  canvas.addEventListener('pointercancel', (e) => { pointers.delete(e.pointerId); pinch = 0; });
+  canvas.addEventListener('wheel', (e) => { e.preventDefault(); zoom(1 + e.deltaY * 0.001); }, { passive: false });
+  function zoom(f: number) {
+    if (!state) return;
+    const n = getMap(state.mapId).grid;
+    cam.dist = Math.min(n * 2.6, Math.max(n * 0.55, cam.dist * f));
+  }
+  function pick(e: PointerEvent) {
+    if (!state || !view || !vp.length) return;
+    const rect = canvas.getBoundingClientRect();
+    const mx = (e.clientX - rect.left) / rect.width, my = (e.clientY - rect.top) / rect.height;
+    const aspect = rect.height / rect.width;
+    let best: number | null = null;
+    let bestD = 0.06;
+    for (const sq of getMap(state.mapId).squares) {
+      const c = squareCenter(state, sq.id);
+      for (const y of [0.1, 0.4]) {
+        const p = project(vp, [c[0], y, c[2]]);
+        if (!p) continue;
+        const d = Math.hypot(p[0] - mx, (p[1] - my) * aspect);
+        if (d < bestD) { bestD = d; best = sq.id; }
+      }
+    }
+    if (best != null) view.onSelect(best);
+  }
+
+  // 見えていないときは描かない
+  const io = new IntersectionObserver((es) => { visible = es.some((x) => x.isIntersecting); if (visible) kick(); });
+  io.observe(el);
+  const onVis = () => { if (!document.hidden) kick(); };
+  document.addEventListener('visibilitychange', onVis);
+  // 看板の文字は、フォントが届いたら描き直す
+  document.fonts?.ready.then(() => { r.dropTextures('sign:'); signature = ''; if (state && view) api.update(state, view); }).catch(() => {});
+
+  const api: Board3D = {
+    el,
+    update(s, v) {
+      state = s; view = v;
+      if (camFor !== s.mapId) {
+        const n = getMap(s.mapId).grid;
+        camFor = s.mapId;
+        cam.dist = n * 1.95;
+      }
+      const sg = sig(s);
+      if (sg !== signature) { signature = sg; build(s); }
+      renderHud(s, v);
+      kick();
+    },
+    setDetail(d) {
+      if (d === detail) return;
+      detail = d;
+      M = makeMeshes();
+      signature = '';
+      if (state && view) api.update(state, view);
+    },
+    stats: () => ({ triangles: Math.round(lastTris), textures: r.textureCount, items: items.length }),
+    destroy() {
+      cancelAnimationFrame(raf);
+      io.disconnect();
+      document.removeEventListener('visibilitychange', onVis);
+      r.gl.getExtension('WEBGL_lose_context')?.loseContext();
+    },
+  };
+
+  function renderHud(s: GameState, v: BoardView) {
+    const map = getMap(s.mapId);
+    const card = s.lastCard != null ? CARDS[s.lastCard] : null;
+    const leader = [...s.players].sort((a, b) => netWorth(s, b.id) - netWorth(s, a.id))[0];
+    hud.replaceChildren(...[
+      h('div', { class: 'hud-row' }, h('b', {}, map.name), h('span', {}, `目標 ${gold(map.target)}・${s.round} 周目`),
+        h('span', {}, `トップ：${leader.name} ${gold(netWorth(s, leader.id))}`)),
+      h('div', { class: 'hud-tip' }, 'ドラッグで回転・ピンチやホイールで拡大・マスをタップで詳しく'),
+      card ? h('div', { class: 'hud-card' }, h('b', {}, card.title), ' ', card.text) : null,
+      v.message ? h('div', { class: 'hud-card' }, v.message) : null,
+    ].filter((x): x is HTMLDivElement => x != null));
+  }
+
+  return api;
+}
+
+// サイコロを投げる道すじ（カメラの手前側の芝の上。木はここに植えない）
+function dicePath(n: number): [[number, number], [number, number]] {
+  const inner = (n - 2) / 2 - 0.3;
+  return [[-inner * 0.95, inner * 0.35], [-inner * 0.62, -inner * 0.62]];
+}
+function segDist([px, pz]: [number, number], [[ax, az], [bx, bz]]: [[number, number], [number, number]]) {
+  const dx = bx - ax, dz = bz - az;
+  const k = Math.max(0, Math.min(1, ((px - ax) * dx + (pz - az) * dz) / (dx * dx + dz * dz)));
+  return Math.hypot(px - ax - dx * k, pz - az - dz * k);
+}
+
+function mulberry(seed: number) {
+  let s = seed >>> 0;
+  return () => { s = (s + 0x6d2b79f5) >>> 0; let t = s; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}

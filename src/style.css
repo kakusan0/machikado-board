@@ -127,3 +127,24 @@ legend { font-weight: 900; margin-bottom: 6px; }
   .token.now { width: 19px; height: 19px; }
   .stocks th:nth-child(3), .stocks td:nth-child(3) { display: none; }
 }
+
+/* 3D 盤面 */
+.board3d { position: relative; width: 100%; max-width: 900px; margin: 0 auto; aspect-ratio: 1; border-radius: 18px; overflow: hidden; background: #CFDBEE; border: 1px solid var(--line); }
+.board3d canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+.board3d canvas:active { cursor: grabbing; }
+.board3d .hud { position: absolute; left: 10px; right: 10px; top: 10px; display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
+.board3d .hud-row { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; background: rgba(255,255,255,.88); color: #1B2340; border-radius: 12px; padding: 6px 12px; font-size: 13px; width: fit-content; max-width: 100%; }
+.board3d .hud-row b { font-size: 15px; }
+.board3d .hud-card { background: #FFF8E6; color: #1B2340; border: 2px solid var(--gold); border-radius: 12px; padding: 6px 12px; font-size: 13px; width: fit-content; max-width: 100%; }
+.board3d .hud-tip { font-size: 11px; color: #4A5373; background: rgba(255,255,255,.7); border-radius: 99px; padding: 2px 10px; width: fit-content; }
+.board3d .hint { position: absolute; right: 10px; bottom: 10px; font-size: 11px; color: #1B2340; background: rgba(255,255,255,.75); border-radius: 99px; padding: 3px 10px; pointer-events: none; }
+.seg { display: inline-flex; gap: 0; }
+.seg .btn { border-radius: 0; }
+.seg .btn:first-child { border-radius: 9px 0 0 9px; }
+.seg .btn:last-child { border-radius: 0 9px 9px 0; margin-left: -1.5px; }
+.seg .btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.top .detail { font-size: 13px; }
+.top select { font: inherit; border-radius: 8px; border: 1.5px solid var(--line); background: var(--panel); color: var(--ink); padding: 3px 6px; }
+.notice { font-size: 13px; color: var(--sub); }
+@media (max-width: 600px) { .board3d .hud-row { font-size: 11px; } .board3d .hud-tip { font-size: 11px; color: #4A5373; background: rgba(255,255,255,.7); border-radius: 99px; padding: 2px 10px; width: fit-content; }
+.board3d .hint { display: none; } }

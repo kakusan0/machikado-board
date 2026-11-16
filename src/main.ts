@@ -3,7 +3,8 @@ import { decide } from './game/ai';
 import { MAPS } from './game/maps';
 import type { Action, CpuLevel, GameState, Mode } from './game/state';
 import { apply, newGame } from './game/turn';
-import { renderBoard } from './ui/board2d';
+import { renderBoard, type BoardView } from './ui/board2d';
+import { createBoard3D, DETAIL_NAMES, DICE_MS, type Board3D, type Detail } from './ui/board3d';
 import { h } from './ui/dom';
 import { renderActions, renderInfo, renderLog, renderPlayers, renderStocks } from './ui/panels';
 
@@ -11,8 +12,9 @@ const SAVE_KEY = 'machikado-board/save-v1';
 const SETTINGS_KEY = 'machikado-board/settings-v1';
 const app = document.getElementById('app')!;
 
-interface Settings { mapId: string; mode: Mode; cpu: CpuLevel; name: string; fast: boolean }
-const defaults: Settings = { mapId: 'corner', mode: 'normal', cpu: 'normal', name: 'あなた', fast: false };
+interface Settings { mapId: string; mode: Mode; cpu: CpuLevel; name: string; fast: boolean; view: '2d' | '3d'; detail: Detail }
+const phone = window.matchMedia('(max-width: 600px)').matches;
+const defaults: Settings = { mapId: 'corner', mode: 'normal', cpu: 'normal', name: 'あなた', fast: false, view: '3d', detail: phone ? 'mid' : 'high' };
 
 function load<T>(key: string): T | null {
   try { const v = localStorage.getItem(key); return v ? (JSON.parse(v) as T) : null; } catch { return null; }
@@ -27,6 +29,18 @@ let tokens: number[] | undefined;
 let selected: number | null = null;
 let busy = false;
 let timer: number | undefined;
+let board3d: Board3D | null = null;
+let no3d = false; // WebGL が使えない端末
+
+function get3d(): Board3D | null {
+  if (no3d) return null;
+  if (!board3d) {
+    board3d = createBoard3D(settings.detail);
+    if (!board3d) no3d = true;
+  }
+  return board3d;
+}
+const use3d = () => settings.view === '3d' && !!get3d();
 
 const delay = (ms: number) => new Promise((r) => { timer = window.setTimeout(r, settings.fast ? ms / 3 : ms); });
 
@@ -39,6 +53,11 @@ async function act(a: Action) {
     // コマを 1 マスずつ動かす
     busy = true;
     state = { ...prev, dice: next.dice };
+    if (use3d()) {
+      // 3D はサイコロが転がって止まるのを見せてからコマを動かす
+      render();
+      await delay(DICE_MS + 150);
+    }
     for (const sq of next.path.slice(1)) {
       tokens = prev.players.map((p, i) => (i === prev.turn ? sq : p.pos));
       render();
@@ -69,6 +88,16 @@ function render() {
     h('header', { class: 'top' },
       h('b', {}, 'まちかど商店街ボード'),
       h('span', { class: 'mode' }, s.mode === 'easy' ? 'かんたん' : 'ふつう'),
+      h('div', { class: 'seg', role: 'group', 'aria-label': '盤面の表示' },
+        (['2d', '3d'] as const).map((v) => h('button', {
+          class: `btn sm${settings.view === v ? ' on' : ''}`, 'aria-pressed': String(settings.view === v),
+          onclick: () => { settings.view = v; store(SETTINGS_KEY, settings); render(); },
+        }, v.toUpperCase()))),
+      settings.view === '3d' && !no3d ? h('label', { class: 'detail' }, '細かさ ',
+        h('select', { onchange: (e: Event) => {
+          settings.detail = (e.target as HTMLSelectElement).value as Detail; store(SETTINGS_KEY, settings);
+          board3d?.setDetail(settings.detail); render();
+        } }, (Object.keys(DETAIL_NAMES) as Detail[]).map((d) => h('option', { value: d, selected: settings.detail === d }, DETAIL_NAMES[d])))) : null,
       h('label', { class: 'fast' }, h('input', { type: 'checkbox', checked: settings.fast, onchange: (e: Event) => {
         settings.fast = (e.target as HTMLInputElement).checked; store(SETTINGS_KEY, settings);
       } }), ' 早送り'),
@@ -78,7 +107,7 @@ function render() {
         window.clearTimeout(timer); busy = false; state = null; store(SAVE_KEY, null); render();
       } }, 'やめる')),
     h('main', { class: 'layout' },
-      h('div', { class: 'board-wrap' }, renderBoard(s, { tokens, selected, onSelect: (sq) => { selected = selected === sq ? null : sq; render(); } })),
+      h('div', { class: 'board-wrap' }, boardEl(s)),
       h('div', { class: 'side' },
         renderActions(s, act, busy),
         renderInfo(s, selected),
@@ -86,6 +115,19 @@ function render() {
         renderStocks(s, act, busy),
         renderLog(s))));
   app.replaceChildren(view);
+}
+
+function boardEl(s: GameState): HTMLElement {
+  const v: BoardView = { tokens, selected, onSelect: (sq) => { selected = selected === sq ? null : sq; render(); } };
+  if (settings.view === '3d') {
+    const b = get3d();
+    if (b) {
+      b.update(s, v);
+      return b.el;
+    }
+    return h('div', {}, h('p', { class: 'notice' }, 'この端末では 3D の盤面を表示できないため、2D で表示しています。'), renderBoard(s, v));
+  }
+  return renderBoard(s, v);
 }
 
 function renderSetup() {
