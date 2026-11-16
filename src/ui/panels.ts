@@ -1,5 +1,5 @@
 // 手番の操作・プレイヤー一覧・株式市場・ログ・マスの詳細
-import { getMap } from '../game/maps';
+import { arrow, getMap } from '../game/maps';
 import {
   BUYOUT_MULT, MAX_SHARES, buyQuote, canBuyout, fee, feeRate, investCap, isMonopoly, netWorth, salary,
   sellQuote, shopAssets, stockAssets, stockPrice, topHolder,
@@ -64,6 +64,18 @@ export function renderActions(s: GameState, act: Act, busy: boolean): HTMLElemen
     const sq = map.squares[s.pending.sq];
     const pr = s.props[sq.id]!;
     switch (s.pending.kind) {
+      case 'direction': {
+        const pend = s.pending;
+        box.append(h('h2', {}, '分かれ道'),
+          h('p', {}, `どちらへ進みますか？（あと ${s.moving?.left ?? 0} マス。来た道へは戻れません）盤面の光っているマスを押しても選べます。`),
+          h('div', { class: 'btns dirs' }, pend.options.map((o) => {
+            const q = map.squares[o];
+            const owner = s.props[o]?.owner;
+            const sub = q.kind === 'shop' ? (owner != null ? `${s.players[owner].name}のお店` : '空き店舗') : '';
+            return btn(`${arrow(map, pend.sq, o)} ${q.name}${sub ? `（${sub}）` : ''}`, { type: 'move', to: o }, 'primary');
+          })));
+        break;
+      }
       case 'buyShop':
         box.append(h('h2', {}, `${sq.name}（空き店舗）`),
           h('p', {}, `${map.streets[sq.street!]?.name ?? ''}・価格 ${g(pr.value)}。買うと、ほかの人が止まったとき利用料が入ります。`),

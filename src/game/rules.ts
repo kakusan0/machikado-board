@@ -32,18 +32,13 @@ export function isMonopoly(state: GameState, street: number, pid: number): boole
   return sq.length > 0 && sq.every((id) => state.props[id]?.owner === pid);
 }
 
-// かんたんモード：隣のマスが同じ持ち主の店なら ×1.5、両隣なら ×2
+// かんたんモード：つながったマスに同じ持ち主の店が 1 軒なら ×1.5、2 軒以上なら ×2
 export function adjacencyMult(state: GameState, sq: number): number {
   const map = getMap(state.mapId);
-  const n = map.squares.length;
   const owner = state.props[sq]?.owner;
   if (owner == null) return 1;
-  let k = 0;
-  for (const d of [-1, 1]) {
-    const j = (sq + d + n) % n;
-    if (map.squares[j].kind === 'shop' && state.props[j]?.owner === owner) k++;
-  }
-  return k === 2 ? 2 : k === 1 ? 1.5 : 1;
+  const k = map.links[sq].filter((j) => map.squares[j].kind === 'shop' && state.props[j]?.owner === owner).length;
+  return k >= 2 ? 2 : k === 1 ? 1.5 : 1;
 }
 
 export function feeRate(state: GameState, sq: number): number {

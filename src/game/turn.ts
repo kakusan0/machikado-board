@@ -1,6 +1,6 @@
 // 手番の進行。apply(state, action) が新しい状態を返す（元の状態は変えない）
 import { CARDS } from './cards';
-import { getMap } from './maps';
+import { bankOf, distances, forwardOptions, getMap } from './maps';
 import { step } from './rng';
 import {
   BUYOUT_MULT, BUYOUT_OWNER_SHARE, DEMAND_DECAY, DEMAND_MAX, DEMAND_MIN, LIQUIDATE_RATE, MAX_SHARES, STOCK_LOT,
@@ -27,7 +27,7 @@ export function newGame(o: NewGameOptions): GameState {
     mode: o.mode,
     rng: o.seed | 0,
     players: o.players.map((p, i): Player => ({
-      id: i, name: p.name, color: COLORS[i % COLORS.length], cpu: p.cpu, cash: map.startCash, pos: 0,
+      id: i, name: p.name, color: COLORS[i % COLORS.length], cpu: p.cpu, cash: map.startCash, pos: bankOf(map), prev: null,
       stamps: [false, false, false, false], level: 0, shares: map.streets.map(() => 0), closed: false, bankrupt: false,
     })),
     props: map.squares.map((sq) =>
@@ -41,6 +41,7 @@ export function newGame(o: NewGameOptions): GameState {
     bankTouched: false,
     exchangeTouched: false,
     dice: null,
+    moving: null,
     path: [],
     deck: [],
     lastCard: null,
@@ -76,6 +77,15 @@ export function apply(prev: GameState, a: Action): GameState {
       s.path = [p.pos];
       log(s, p.id, `サイコロは ${s.dice}`);
       move(s, s.dice, true);
+      break;
+    }
+    case 'move': {
+      need(s.phase === 'decide' && s.pending?.kind === 'direction' && s.pending.options.includes(a.to) && !!s.moving, a);
+      s.pending = null;
+      s.path = [p.pos];
+      stepTo(s, a.to);
+      s.moving!.left -= 1;
+      if (!isOverNow(s)) continueMove(s);
       break;
     }
     case 'buyShop': {
@@ -175,18 +185,50 @@ function need(ok: boolean, a: Action) {
 const sqName = (s: GameState, sq: number) => getMap(s.mapId).squares[sq].name;
 const streetName = (s: GameState, st: number) => getMap(s.mapId).streets[st].name;
 
-// n マス進む。通過・到着したマスの効果を順に処理し、最後に止まったマスを解決する
+// n マス進む。通過・到着したマスの効果を順に処理し、最後に止まったマスを解決する。
+// 分かれ道では止まって、進む方向を選んでもらう（来た方向へは戻れない）
 function move(s: GameState, n: number, resolve: boolean, depth = 0) {
+  s.moving = { left: n, depth: resolve ? depth : -1 };
+  continueMove(s);
+}
+
+function continueMove(s: GameState) {
   const map = getMap(s.mapId);
   const p = cur(s);
-  for (let i = 0; i < n; i++) {
-    p.pos = (p.pos + 1) % map.squares.length;
-    s.path.push(p.pos);
-    pass(s, p.pos);
-    if (s.phase === 'over') return;
+  const m = s.moving!;
+  while (m.left > 0) {
+    const opts = forwardOptions(map, p.pos, p.prev);
+    if (opts.length > 1) {
+      s.phase = 'decide';
+      s.pending = { kind: 'direction', sq: p.pos, options: opts };
+      return;
+    }
+    stepTo(s, opts[0]);
+    m.left -= 1;
+    if (isOverNow(s)) return;
   }
-  if (resolve) land(s, p.pos, depth);
+  s.moving = null;
+  if (m.depth >= 0) land(s, p.pos, m.depth);
 }
+
+function stepTo(s: GameState, to: number) {
+  const p = cur(s);
+  p.prev = p.pos;
+  p.pos = to;
+  s.path.push(to);
+  pass(s, to);
+}
+
+// 移動せずに別のマスへ飛ぶ（カード）。prev は着いたマスの手前のマスにする
+function warp(s: GameState, to: number, prev: number | null) {
+  const p = cur(s);
+  p.pos = to;
+  p.prev = prev;
+  s.path.push(to);
+  pass(s, to);
+}
+
+const isOverNow = (s: GameState) => s.phase === 'over';
 
 function pass(s: GameState, sq: number) {
   const map = getMap(s.mapId);
@@ -370,6 +412,7 @@ function nextTurn(s: GameState) {
   s.bankTouched = false;
   s.exchangeTouched = false;
   s.dice = null;
+  s.moving = null;
   s.lastCard = null;
 }
 
@@ -400,8 +443,8 @@ function drawCard(s: GameState, depth: number): boolean {
     case 1: p.cash += 100; break;
     case 2: p.cash -= 50; break;
     case 3: {
-      const n = (map.squares.length - p.pos) % map.squares.length;
-      if (n > 0) { move(s, n, true, depth + 1); return true; }
+      const bank = map.squares.find((q) => q.kind === 'bank')!.id;
+      if (p.pos !== bank) { warp(s, bank, null); if (!isOver(s)) land(s, bank, depth + 1); return true; }
       break;
     }
     case 4: move(s, 3, true, depth + 1); return true;
@@ -423,9 +466,15 @@ function drawCard(s: GameState, depth: number): boolean {
     case 12: p.cash += (1 + Math.floor(rand(s) * 6)) * 30; break;
     case 13: p.closed = true; break;
     case 14: {
-      for (let k = 1; k < map.squares.length; k++) {
-        const j = (p.pos + k) % map.squares.length;
-        if (map.squares[j].kind === 'shop' && s.props[j]!.owner == null) { move(s, k, true, depth + 1); return true; }
+      const d = distances(map, p.pos);
+      const target = map.squares
+        .filter((q) => q.kind === 'shop' && s.props[q.id]!.owner == null && q.id !== p.pos)
+        .sort((a, b) => d[a.id] - d[b.id] || a.id - b.id)[0];
+      if (target) {
+        const back = map.links[target.id].find((w) => d[w] === d[target.id] - 1) ?? null;
+        warp(s, target.id, back);
+        if (!isOver(s)) land(s, target.id, depth + 1);
+        return true;
       }
       break;
     }

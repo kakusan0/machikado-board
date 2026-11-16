@@ -49,16 +49,18 @@ async function act(a: Action) {
   const prev = state;
   let next: GameState;
   try { next = apply(prev, a); } catch (e) { console.warn(e); return; }
-  if (a.type === 'roll') {
+  if (a.type === 'roll' || a.type === 'move') {
     // コマを 1 マスずつ動かす
     busy = true;
-    state = { ...prev, dice: next.dice };
-    if (use3d()) {
+    state = { ...prev, dice: next.dice, pending: null };
+    if (a.type === 'roll' && use3d()) {
       // 3D はサイコロが転がって止まるのを見せてからコマを動かす
       render();
       await delay(DICE_MS + 150);
     }
-    for (const sq of next.path.slice(1)) {
+    const path = next.path.slice(1);
+    // 分かれ道で止まった（まだ歩いていない）ときは、止まる前のマスまで見せる
+    for (const sq of path) {
       tokens = prev.players.map((p, i) => (i === prev.turn ? sq : p.pos));
       render();
       await delay(170);
@@ -118,7 +120,12 @@ function render() {
 }
 
 function boardEl(s: GameState): HTMLElement {
-  const v: BoardView = { tokens, selected, onSelect: (sq) => { selected = selected === sq ? null : sq; render(); } };
+  const human = !s.players[s.turn].cpu && !busy;
+  const choices = human && s.pending?.kind === 'direction' ? s.pending.options : undefined;
+  const v: BoardView = { tokens, selected, choices, onSelect: (sq) => {
+    if (choices?.includes(sq)) { void act({ type: 'move', to: sq }); return; }
+    selected = selected === sq ? null : sq; render();
+  } };
   if (settings.view === '3d') {
     const b = get3d();
     if (b) {
@@ -161,7 +168,8 @@ function renderSetup() {
       selected = null;
       store(SAVE_KEY, state);
       render();
-    } }, saved ? 'あたらしく始める' : 'はじめる')));
+    } }, saved ? 'あたらしく始める' : 'はじめる'),
+    h('p', { class: 'build' }, `版：${__BUILD__}`)));
 }
 
 render();

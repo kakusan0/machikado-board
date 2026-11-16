@@ -1,6 +1,7 @@
 // 3D の盤面（WebGL）。キャンバスは作り直さず、状態が変わったときだけ場面を組み直す
 import { CARDS } from '../game/cards';
-import { getMap, squareXY } from '../game/maps';
+import { getMap } from '../game/maps';
+import type { GameMap } from '../game/state';
 import { netWorth } from '../game/rules';
 import type { GameState } from '../game/state';
 import type { BoardView } from './board2d';
@@ -73,6 +74,7 @@ export function createBoard3D(initial: Detail): Board3D | null {
   let lastTris = 0;
   const cam = { yaw: 0.65 + Math.PI, pitch: 0.95, dist: 9 };
   let camFor = '';
+  let fontsReady = false;
   const disp: { pos: Vec3; from: Vec3; to: Vec3; t0: number }[] = [];
   let diceAnim = { value: 0, t0: 0 };
 
@@ -95,8 +97,8 @@ export function createBoard3D(initial: Detail): Board3D | null {
   // ---------- 場面を組む ----------
   function build(s: GameState) {
     const map = getMap(s.mapId);
-    const n = map.grid;
-    const off = (n - 1) / 2;
+    const lay = layoutOf(map);
+    const n = Math.max(map.width, map.height);
     const tx = {
       stone: r.tex('stone', T.stone), cobble: r.tex('cobble', T.cobble), grass: r.tex('grass', T.grass),
       wood: r.tex('wood', T.wood), bark: r.tex('bark', T.bark), leaves: r.tex('leaves', T.leaves), water: r.tex('water', T.water),
@@ -108,72 +110,76 @@ export function createBoard3D(initial: Detail): Board3D | null {
       out.push({ mesh, p, s: sc, r: 0, c: [1, 1, 1], tex: r.white, uvs: [1, 1], ...o });
     const C = T.rgb;
 
-    // 土台・石畳・芝
-    add(M.cube, [0, -0.36, 0], [n + 0.7, 0.3, n + 0.7], { tex: tx.stone, c: C('#8C94A8'), uvs: [n, 1] });
-    add(M.cube, [0, -0.06, 0], [n + 0.3, 0.06, n + 0.3], { tex: tx.cobble, uvs: [n * 1.5, n * 1.5] });
-    add(M.cube, [0, 0, 0], [n - 2.1, 0.05, n - 2.1], { tex: tx.grass, uvs: [n - 2, n - 2] });
+    // 土台・芝（道のない所は芝生）
+    const W = map.width, H = map.height;
+    add(M.cube, [0, -0.36, 0], [W + 0.7, 0.3, H + 0.7], { tex: tx.stone, c: C('#8C94A8'), uvs: [n, 1] });
+    add(M.cube, [0, -0.06, 0], [W + 0.3, 0.06, H + 0.3], { tex: tx.grass, uvs: [W, H] });
+    // 道：つながったマスの間に石畳
+    map.squares.forEach((sq) => map.links[sq.id].forEach((w) => {
+      if (w < sq.id) return;
+      const b = map.squares[w];
+      const [ax, az] = lay.at(sq.x, sq.y), [bx, bz] = lay.at(b.x, b.y);
+      add(M.cube, [(ax + bx) / 2, -0.005, (az + bz) / 2], [ax !== bx ? 1.0 : 0.5, 0.01, az !== bz ? 1.0 : 0.5], { tex: tx.cobble, uvs: [1, 1] });
+    }));
 
     // 盤の縁の柵
-    const posts = detail === 'low' ? 0 : detail === 'mid' ? 6 * n : 12 * n;
-    const L = off + 0.62;
+    const LX = W / 2 + 0.12, LZ = H / 2 + 0.12;
+    const posts = detail === 'low' ? 0 : detail === 'mid' ? 3 * (W + H) : 6 * (W + H);
     for (let i = 0; i < posts; i++) {
-      const t = (i / posts) * 4, side = Math.floor(t), f = t - side;
-      const xz = [[-L + f * 2 * L, -L], [L, -L + f * 2 * L], [L - f * 2 * L, L], [-L, L - f * 2 * L]][side];
-      add(M.cyl, [xz[0], -0.02, xz[1]], [0.05, 0.22, 0.05], { tex: tx.wood });
+      const per = 2 * (2 * LX + 2 * LZ);
+      let d = (i / posts) * per;
+      let px: number, pz: number;
+      if (d < 2 * LX) { px = -LX + d; pz = -LZ; } else if ((d -= 2 * LX) < 2 * LZ) { px = LX; pz = -LZ + d; }
+      else if ((d -= 2 * LZ) < 2 * LX) { px = LX - d; pz = LZ; } else { d -= 2 * LX; px = -LX; pz = LZ - d; }
+      add(M.cyl, [px, -0.02, pz], [0.05, 0.22, 0.05], { tex: tx.wood });
     }
-    if (posts) for (const [x, z, sx, sz] of [[0, -L, 2 * L, 0.03], [L, 0, 0.03, 2 * L], [0, L, 2 * L, 0.03], [-L, 0, 0.03, 2 * L]]) {
+    if (posts) for (const [x, z, sx, sz] of [[0, -LZ, 2 * LX, 0.03], [LX, 0, 0.03, 2 * LZ], [0, LZ, 2 * LX, 0.03], [-LX, 0, 0.03, 2 * LZ]]) {
       add(M.cube, [x, 0.13, z], [sx, 0.03, sz], { tex: tx.wood, uvs: [n, 1] });
     }
 
-    // 中央：噴水・木・街灯・ベンチ
-    add(M.cyl, [0, 0.05, 0], [1.0, 0.16, 1.0], { tex: tx.stone, c: C('#E6E8EE'), uvs: [6, 1], shadow: 1.2 });
-    add(M.cyl, [0, 0.07, 0], [0.86, 0.16, 0.86], { tex: tx.water });
-    add(M.bowl, [0, 0.2, 0], [0.5, 0.36, 0.5], { tex: tx.stone, c: C('#EEF0F4') });
-    add(M.sphere, [0, 0.52, 0], [0.16, 0.22, 0.16], { tex: tx.water, bob: 1, alpha: 1 });
-    const inner = (n - 2) / 2 - 0.35;
-    const rand = mulberry(n * 97 + 3);
-    const treeCount = detail === 'low' ? 4 : detail === 'mid' ? 2 * (n - 2) : 5 * (n - 2);
-    const trees: [number, number][] = [];
-    for (let guard = 0; trees.length < treeCount && guard < 4000; guard++) {
-      const x = (rand() * 2 - 1) * inner, z = (rand() * 2 - 1) * inner;
-      if (Math.hypot(x, z) < 1.25 || segDist([x, z], dicePath(n)) < 0.55) continue;
-      if (trees.every(([a, b]) => Math.hypot(a - x, b - z) > 0.5)) trees.push([x, z]);
+    // 空いている所：噴水・木・街灯
+    if (lay.fountain) {
+      const [fx, fz] = lay.fountain;
+      add(M.cyl, [fx, 0.0, fz], [0.86, 0.14, 0.86], { tex: tx.stone, c: C('#E6E8EE'), uvs: [6, 1], shadow: 1 });
+      add(M.cyl, [fx, 0.02, fz], [0.74, 0.14, 0.74], { tex: tx.water });
+      add(M.bowl, [fx, 0.14, fz], [0.42, 0.3, 0.42], { tex: tx.stone, c: C('#EEF0F4') });
+      add(M.sphere, [fx, 0.4, fz], [0.14, 0.2, 0.14], { tex: tx.water, bob: 1 });
     }
-    trees.forEach(([x, z], k) => {
-      add(M.cyl, [x, 0.05, z], [0.09, 0.32, 0.09], { tex: tx.bark, uvs: [2, 1], shadow: 1 });
-      if (k % 2) {
-        for (const [y, w, hh] of [[0.26, 0.55, 0.45], [0.48, 0.44, 0.4], [0.68, 0.3, 0.34]]) add(M.cone, [x, y, z], [w, hh, w], { tex: tx.leaves });
-      } else {
-        add(M.sphere, [x, 0.28, z], [0.55, 0.5, 0.55], { tex: tx.leaves });
-        add(M.sphere, [x + 0.12, 0.5, z - 0.05], [0.36, 0.34, 0.36], { tex: tx.leaves });
-        add(M.sphere, [x - 0.1, 0.48, z + 0.08], [0.32, 0.3, 0.32], { tex: tx.leaves });
+    const rand = mulberry(W * 97 + H * 13 + 3);
+    const perCell = detail === 'low' ? 0.3 : detail === 'mid' ? 1 : 2;
+    const trees: [number, number][] = [];
+    lay.empty.forEach(([cx, cz], k) => {
+      if (lay.fountain && cx === lay.fountain[0] && cz === lay.fountain[1]) return;
+      let want = Math.floor(perCell) + (rand() < perCell % 1 ? 1 : 0);
+      for (let guard = 0; want > 0 && guard < 40; guard++) {
+        const x = cx + (rand() - 0.5) * 0.7, z = cz + (rand() - 0.5) * 0.7;
+        if (segDist([x, z], lay.dice) < 0.5) continue;
+        if (trees.every(([a, b]) => Math.hypot(a - x, b - z) > 0.42)) { trees.push([x, z]); want--; }
       }
-    });
-    if (detail !== 'low') {
-      const lr = Math.min(1.6, inner);
-      for (let i = 0; i < 8; i++) {
-        const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
-        const x = Math.cos(a) * lr, z = Math.sin(a) * lr;
-        add(M.lamp, [x, 0.05, z], [0.12, 0.66, 0.12], { c: C('#2B3350'), shadow: 0.5 });
-        add(M.sphere, [x, 0.66, z], [0.16, 0.16, 0.16], { c: C('#FFE7A8'), flat: 1 });
-        add(M.cone, [x, 0.76, z], [0.2, 0.08, 0.2], { c: C('#2B3350') });
-      }
-      for (const [x, z, rot] of [[0.6, 1.2, 0], [-1.2, -0.6, Math.PI / 2], [1.2, -0.7, Math.PI / 2], [-0.6, 1.2, 0]]) {
-        if (Math.abs(x) > inner || Math.abs(z) > inner) continue;
-        add(M.cube, [x, 0.13, z], [0.44, 0.04, 0.15], { tex: tx.wood, r: rot, shadow: 0.6 });
-        add(M.cube, [x, 0.17, z], [0.44, 0.12, 0.03], { tex: tx.wood, r: rot });
-        for (const d of [-0.18, 0.18]) {
-          const [bx, bz] = [x + Math.cos(rot) * d, z - Math.sin(rot) * d];
-          add(M.cube, [bx, 0.05, bz], [0.03, 0.08, 0.13], { c: C('#2B3350'), r: rot });
+      if (detail !== 'low' && k % 3 === 1) {
+        const x = cx + 0.4, z = cz - 0.4;
+        if (segDist([x, z], lay.dice) > 0.4) {
+          add(M.lamp, [x, 0, z], [0.1, 0.6, 0.1], { c: C('#2B3350'), shadow: 0.5 });
+          add(M.sphere, [x, 0.6, z], [0.14, 0.14, 0.14], { c: C('#FFE7A8'), flat: 1 });
+          add(M.cone, [x, 0.69, z], [0.18, 0.07, 0.18], { c: C('#2B3350') });
         }
       }
-    }
+    });
+    trees.forEach(([x, z], k) => {
+      const sc = 0.75;
+      add(M.cyl, [x, 0, z], [0.08, 0.3, 0.08], { tex: tx.bark, uvs: [2, 1], shadow: 0.9 });
+      if (k % 2) {
+        for (const [y, w, hh] of [[0.2, 0.5, 0.42], [0.4, 0.4, 0.38], [0.58, 0.28, 0.32]]) add(M.cone, [x, y, z], [w * sc, hh, w * sc], { tex: tx.leaves });
+      } else {
+        add(M.sphere, [x, 0.22, z], [0.5 * sc, 0.46, 0.5 * sc], { tex: tx.leaves });
+        add(M.sphere, [x + 0.08, 0.42, z - 0.04], [0.3, 0.3, 0.3], { tex: tx.leaves });
+      }
+    });
 
     // マス
     map.squares.forEach((sq) => {
-      const [cx, cy] = squareXY(n, sq.id);
-      const x = cx - off, z = cy - off;
-      const rot = cy === 0 ? Math.PI : cx === n - 1 ? Math.PI / 2 : cy === n - 1 ? 0 : -Math.PI / 2;
+      const [x, z] = lay.at(sq.x, sq.y);
+      const rot = lay.facing(sq.x, sq.y);
       const cs = Math.cos(rot), sn = Math.sin(rot);
       const at = (lx: number, lz: number): [number, number] => [x + cs * lx + sn * lz, z - sn * lx + cs * lz];
       const pr = s.props[sq.id];
@@ -281,15 +287,15 @@ export function createBoard3D(initial: Detail): Board3D | null {
   }
 
   function sig(s: GameState) {
-    return JSON.stringify([s.mapId, s.mode, detail, s.props.map((p) => p && [p.owner, p.value, p.facility ?? '']),
+    return JSON.stringify([s.mapId, s.mode, detail, fontsReady, s.props.map((p) => p && [p.owner, p.value, p.facility ?? '']),
       s.players.map((p) => [p.color, p.closed])]);
   }
 
   // ---------- 動くもの ----------
   function squareCenter(s: GameState, sq: number): Vec3 {
-    const n = getMap(s.mapId).grid;
-    const [cx, cy] = squareXY(n, sq);
-    return [cx - (n - 1) / 2, 0.06, cy - (n - 1) / 2];
+    const map = getMap(s.mapId);
+    const [x, z] = layoutOf(map).at(map.squares[sq].x, map.squares[sq].y);
+    return [x, 0.06, z];
   }
   function tokenTargets(s: GameState, v: BoardView): Vec3[] {
     const pos = v.tokens ?? s.players.map((p) => p.pos);
@@ -327,6 +333,12 @@ export function createBoard3D(initial: Detail): Board3D | null {
       if (diceAnim.value !== s.dice) diceAnim = { value: s.dice, t0: t };
       out.push(...diceItems(t));
     } else diceAnim.value = 0;
+    // 分かれ道で選べるマス
+    for (const c0 of v.choices ?? []) {
+      const c = squareCenter(s, c0);
+      overlay.push({ mesh: M.plane, p: [c[0], 0.08, c[2]], s: [0.98, 1, 0.98], r: 0, c: T.rgb('#2FA35B'), tex: r.white, uvs: [1, 1], alpha: 0.4 + Math.sin(t / 160) * 0.25, flat: 1 });
+      overlay.push({ mesh: M.cone, p: [c[0], 0.9 + Math.sin(t / 200) * 0.08, c[2]], s: [0.2, -0.26, 0.2], r: 0, c: T.rgb('#2FA35B'), tex: r.white, uvs: [1, 1], flat: 0.5 });
+    }
     // 選んだマス
     if (v.selected != null) {
       const c = squareCenter(s, v.selected);
@@ -336,10 +348,9 @@ export function createBoard3D(initial: Detail): Board3D | null {
   }
 
   function diceItems(t: number): SceneItem[] {
-    const n = getMap(state!.mapId).grid;
     const k = Math.min(1, (t - diceAnim.t0) / DICE_MS);
     const seed = diceAnim.t0 % 1000;
-    const [[fx, fz], [tx, tz]] = dicePath(n);
+    const [[fx, fz], [tx, tz]] = layoutOf(getMap(state!.mapId)).dice;
     const from: Vec3 = [fx, 0, fz];
     const to: Vec3 = [tx, 0, tz];
     // 進み方は減速、高さは 3 回はねて小さくなる
@@ -373,7 +384,8 @@ export function createBoard3D(initial: Detail): Board3D | null {
     const w = Math.max(1, Math.round(canvas.clientWidth * dpr)), hh = Math.max(1, Math.round(canvas.clientHeight * dpr));
     if (canvas.width !== w || canvas.height !== hh) { canvas.width = w; canvas.height = hh; }
     const e = eye();
-    const n = getMap(state.mapId).grid;
+    const mp = getMap(state.mapId);
+    const n = Math.max(mp.width, mp.height);
     vp = mul(persp(0.72, w / hh, 0.1, n * 8), lookAt(e, [0, 0.2, 0], [0, 1, 0]));
     const sunRaw: Vec3 = [0.45, 0.78, 0.35];
     const sl = Math.hypot(...sunRaw);
@@ -428,7 +440,8 @@ export function createBoard3D(initial: Detail): Board3D | null {
   canvas.addEventListener('wheel', (e) => { e.preventDefault(); zoom(1 + e.deltaY * 0.001); }, { passive: false });
   function zoom(f: number) {
     if (!state) return;
-    const n = getMap(state.mapId).grid;
+    const mp = getMap(state.mapId);
+    const n = Math.max(mp.width, mp.height);
     cam.dist = Math.min(n * 2.6, Math.max(n * 0.55, cam.dist * f));
   }
   function pick(e: PointerEvent) {
@@ -456,16 +469,17 @@ export function createBoard3D(initial: Detail): Board3D | null {
   const onVis = () => { if (!document.hidden) kick(); };
   document.addEventListener('visibilitychange', onVis);
   // 看板の文字は、フォントが届いたら描き直す
-  document.fonts?.ready.then(() => { r.dropTextures('sign:'); signature = ''; if (state && view) api.update(state, view); }).catch(() => {});
+  document.fonts?.ready.then(() => { fontsReady = true; r.dropTextures('sign:'); signature = ''; if (state && view) api.update(state, view); }).catch(() => {});
 
   const api: Board3D = {
     el,
     update(s, v) {
       state = s; view = v;
       if (camFor !== s.mapId) {
-        const n = getMap(s.mapId).grid;
+        const mp = getMap(s.mapId);
+        const n = Math.max(mp.width, mp.height);
         camFor = s.mapId;
-        cam.dist = n * 1.95;
+        cam.dist = n * 1.55;
       }
       const sg = sig(s);
       if (sg !== signature) { signature = sg; build(s); }
@@ -504,10 +518,42 @@ export function createBoard3D(initial: Detail): Board3D | null {
   return api;
 }
 
-// サイコロを投げる道すじ（カメラの手前側の芝の上。木はここに植えない）
-function dicePath(n: number): [[number, number], [number, number]] {
-  const inner = (n - 2) / 2 - 0.3;
-  return [[-inner * 0.95, inner * 0.35], [-inner * 0.62, -inner * 0.62]];
+// 盤の配置：マスの位置、空いている所、噴水、サイコロを投げる道すじ、建物の向き
+interface Layout {
+  at(x: number, y: number): [number, number];
+  facing(x: number, y: number): number;
+  empty: [number, number][];
+  fountain: [number, number] | null;
+  dice: [[number, number], [number, number]];
+}
+const layouts = new Map<string, Layout>();
+function layoutOf(map: GameMap): Layout {
+  const hit = layouts.get(map.id);
+  if (hit) return hit;
+  const ox = (map.width - 1) / 2, oy = (map.height - 1) / 2;
+  const filled = new Set(map.squares.map((q) => `${q.x},${q.y}`));
+  const at = (x: number, y: number): [number, number] => [x - ox, y - oy];
+  const empty: [number, number][] = [];
+  for (let y = 0; y < map.height; y++) for (let x = 0; x < map.width; x++) if (!filled.has(`${x},${y}`)) empty.push(at(x, y));
+  const byCenter = [...empty].sort((a, b) => Math.hypot(...a) - Math.hypot(...b));
+  const fountain = byCenter[0] ?? null;
+  // サイコロは噴水の次に中央に近い空き地へ。手前（カメラ側）から投げ込む
+  const land = byCenter.find((c) => c !== fountain) ?? [0, 0];
+  const from: [number, number] = [Math.max(-ox, land[0] - 1.1), Math.max(-oy, Math.min(oy, land[1] + 0.9))];
+  // 建物の正面：道のない方向のうち、盤の外側に近い向き
+  const facing = (x: number, y: number) => {
+    const [px, pz] = at(x, y);
+    let best = 0, score = -Infinity;
+    for (const [dx, dy, rot] of [[0, 1, 0], [0, -1, Math.PI], [1, 0, Math.PI / 2], [-1, 0, -Math.PI / 2]] as const) {
+      if (filled.has(`${x + dx},${y + dy}`)) continue;
+      const sc = dx * px + dy * pz + (x + dx < 0 || y + dy < 0 || x + dx >= map.width || y + dy >= map.height ? 100 : 0);
+      if (sc > score) { score = sc; best = rot; }
+    }
+    return best;
+  };
+  const lay: Layout = { at, facing, empty, fountain, dice: [from, land] };
+  layouts.set(map.id, lay);
+  return lay;
 }
 function segDist([px, pz]: [number, number], [[ax, az], [bx, bz]]: [[number, number], [number, number]]) {
   const dx = bx - ax, dz = bz - az;

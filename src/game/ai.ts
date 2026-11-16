@@ -1,5 +1,5 @@
 // CPU の判断。状態を見て次の操作を 1 つ返す（状態は変えない）
-import { getMap } from './maps';
+import { forwardOptions, getMap } from './maps';
 import { hash01 } from './rng';
 import {
   BUYOUT_MULT, MAX_SHARES, STOCK_LOT, buyQuote, fee, isMonopoly, ownedInStreet, stockPrice, streetSquares,
@@ -34,6 +34,19 @@ export function decide(s: GameState): Action {
   if (s.phase === 'decide' && s.pending) {
     const sq = s.pending.sq;
     switch (s.pending.kind) {
+      case 'direction': {
+        const opts = s.pending.options;
+        if (level === 'easy' && r(7) < 0.5) return { type: 'move', to: opts[Math.floor(r(8) * opts.length)] };
+        const left = s.moving?.left ?? 1;
+        let best = opts[0];
+        let bestScore = -Infinity;
+        for (const o of opts) {
+          const scores = routeScores(s, o, sq, left - 1, p.stamps.slice());
+          const sc = level === 'hard' ? Math.max(...scores) : scores.reduce((a, b) => a + b, 0) / scores.length;
+          if (sc > bestScore) { bestScore = sc; best = o; }
+        }
+        return { type: 'move', to: best };
+      }
       case 'buyShop': {
         const price = s.props[sq]!.value;
         const want = p.cash - price >= reserve || (level !== 'easy' && p.cash - price >= 0 && r(1) < 0.5);
@@ -94,6 +107,33 @@ export function decide(s: GameState): Action {
     return { type: 'endTurn' };
   }
   return { type: 'skip' };
+}
+
+// 分かれ道の先を読む：残りの歩数で行ける道すじごとの点数（スタンプ・昇格・止まるマス）
+function routeScores(s: GameState, pos: number, prev: number, left: number, stamps: boolean[], acc = 0, out: number[] = []): number[] {
+  const map = getMap(s.mapId);
+  const p = s.players[s.turn];
+  const q = map.squares[pos];
+  let sc = acc;
+  const st = stamps.slice();
+  if (q.kind === 'stamp' && !st[q.stamp!]) { st[q.stamp!] = true; sc += 40; }
+  if (q.kind === 'bank' && st.every(Boolean)) { sc += 200; st.fill(false); }
+  if (left === 0) {
+    const pr = s.props[pos];
+    if (q.kind === 'shop' && pr) {
+      if (pr.owner == null) sc += p.cash >= pr.value ? 30 : 0;
+      else if (pr.owner === p.id) sc += 15;
+      else sc -= fee(s, pos);
+    }
+    if (q.kind === 'chance') sc += 5;
+    if (q.kind === 'plaza') sc -= 5;
+    if (q.kind === 'bank') sc += 10;
+    out.push(sc);
+    return out;
+  }
+  if (out.length > 200) return out;
+  for (const nx of forwardOptions(map, pos, prev)) routeScores(s, nx, pos, left - 1, st, sc, out);
+  return out;
 }
 
 // 通りの稼ぐ力のめやす（利用料の合計）

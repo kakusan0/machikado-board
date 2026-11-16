@@ -1,5 +1,5 @@
 // 2D の盤面（CSS グリッド）
-import { getMap, squareXY } from '../game/maps';
+import { arrow, getMap } from '../game/maps';
 import { fee, netWorth } from '../game/rules';
 import type { GameState } from '../game/state';
 import { FACILITY_NAMES, STAMP_NAMES } from '../game/state';
@@ -12,15 +12,30 @@ export interface BoardView {
   tokens?: number[]; // 演出中のコマの位置（なければ state の位置）
   selected: number | null;
   onSelect: (sq: number) => void;
+  choices?: number[]; // 分かれ道で選べるマス
   message?: string;
 }
 
 export function renderBoard(s: GameState, v: BoardView): HTMLElement {
   const map = getMap(s.mapId);
-  const n = map.grid;
-  const board = h('div', { class: `board grid-${n}`, style: { gridTemplateColumns: `repeat(${n}, 1fr)` } });
+  const n = Math.max(map.width, map.height);
+  const size = n >= 10 ? 10 : n >= 8 ? 8 : 6;
+  const board = h('div', { class: `board grid-${size}`, style: {
+    gridTemplateColumns: `repeat(${map.width}, 1fr)`, gridTemplateRows: `repeat(${map.height}, 1fr)`,
+    aspectRatio: `${map.width} / ${map.height}`,
+  } });
+  // 道（つながっているマスの間の線）
+  map.squares.forEach((sq) => map.links[sq.id].forEach((w) => {
+    if (w < sq.id) return;
+    const b = map.squares[w];
+    board.append(h('span', { class: `road ${b.x !== sq.x ? 'h' : 'v'}`, style: {
+      gridColumn: b.x !== sq.x ? `${sq.x + 1} / ${b.x + 2}` : String(sq.x + 1),
+      gridRow: b.y !== sq.y ? `${sq.y + 1} / ${b.y + 2}` : String(sq.y + 1),
+    } }));
+  }));
+  const choices = new Set(v.choices ?? []);
   map.squares.forEach((sq) => {
-    const [x, y] = squareXY(n, sq.id);
+    const { x, y } = sq;
     const pr = s.props[sq.id];
     const owner = pr?.owner != null ? s.players[pr.owner] : null;
     const street = sq.street != null ? map.streets[sq.street] : null;
@@ -35,7 +50,7 @@ export function renderBoard(s: GameState, v: BoardView): HTMLElement {
       sub = pr?.facility ? FACILITY_NAMES[pr.facility] : s.mode === 'easy' ? 'チャンス' : '空き地';
     }
     const cell = h('button', {
-      class: `sq k-${sq.kind}${owner ? ' owned' : ''}${v.selected === sq.id ? ' sel' : ''}`,
+      class: `sq k-${sq.kind}${owner ? ' owned' : ''}${v.selected === sq.id ? ' sel' : ''}${choices.has(sq.id) ? ' choice' : ''}`,
       style: {
         gridColumn: String(x + 1), gridRow: String(y + 1),
         '--street': street?.color ?? 'transparent', '--owner': owner?.color ?? 'transparent',
@@ -50,6 +65,7 @@ export function renderBoard(s: GameState, v: BoardView): HTMLElement {
         owner ? h('span', { class: 'fee' }, `利用料 ${fee(s, sq.id)}`) : h('span', { class: 'fee vacant' }, '空き店舗')]
       : [h('span', { class: 'ic' }, icon), h('span', { class: 'nm' }, sub)],
     owner?.closed ? h('span', { class: 'closed' }, '休') : null,
+    choices.has(sq.id) && s.pending?.kind === 'direction' ? h('span', { class: 'arrow' }, arrow(map, s.pending.sq, sq.id)) : null,
     );
     board.append(cell);
   });
@@ -58,7 +74,7 @@ export function renderBoard(s: GameState, v: BoardView): HTMLElement {
   const pos = v.tokens ?? s.players.map((p) => p.pos);
   s.players.forEach((p, i) => {
     if (p.bankrupt) return;
-    const [x, y] = squareXY(n, pos[i]);
+    const { x, y } = map.squares[pos[i]];
     const same = s.players.filter((q, j) => j < i && !q.bankrupt && pos[j] === pos[i]).length;
     board.append(h('span', {
       class: `token${i === s.turn ? ' now' : ''}`,
@@ -70,16 +86,17 @@ export function renderBoard(s: GameState, v: BoardView): HTMLElement {
     }, p.name.slice(0, 1)));
   });
 
-  // 中央
+  // 盤の上の帯（マップ名・サイコロ・カード）
   const card = s.lastCard != null ? CARDS[s.lastCard] : null;
   const leader = [...s.players].sort((a, b) => netWorth(s, b.id) - netWorth(s, a.id))[0];
-  board.append(h('div', { class: 'center', style: { gridColumn: `2 / ${n}`, gridRow: `2 / ${n}` } },
-    h('div', { class: 'title' }, map.name),
-    h('div', { class: 'target' }, `目標 ${g(map.target)}・${s.round} 周目`),
-    s.dice ? h('div', { class: 'dice', 'aria-label': `サイコロ ${s.dice}` }, '⚀⚁⚂⚃⚄⚅'[s.dice - 1]) : null,
-    card ? h('div', { class: 'card' }, h('b', {}, card.title), h('span', {}, card.text)) : null,
+  const info = h('div', { class: 'board-info' },
+    h('div', { class: 'row' },
+      h('b', { class: 'title' }, map.name),
+      h('span', {}, `目標 ${g(map.target)}・${s.round} 周目`),
+      h('span', {}, `トップ：${leader.name} ${g(netWorth(s, leader.id))}`),
+      s.dice ? h('span', { class: 'dice', 'aria-label': `サイコロ ${s.dice}` }, '⚀⚁⚂⚃⚄⚅'[s.dice - 1]) : null),
+    card ? h('div', { class: 'card' }, h('b', {}, card.title), ' ', card.text) : null,
     v.message ? h('div', { class: 'msg' }, v.message) : null,
-    h('div', { class: 'lead' }, `トップ：${leader.name} ${g(netWorth(s, leader.id))}`),
-  ));
-  return board;
+  );
+  return h('div', { class: 'board2d' }, info, board);
 }

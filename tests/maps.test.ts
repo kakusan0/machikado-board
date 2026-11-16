@@ -1,11 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { MAPS, parseMap, squareXY, validateMap, validateMaps } from '../src/game/maps';
+import { MAPS, arrow, forwardOptions, parseMap, validateMap, validateMaps } from '../src/game/maps';
 
-// 正しい最小の盤（6×6・20 マス）を土台に、1 か所ずつ壊して確認する
-const OK = 'B00a0 C11b1 P22c2 C33d3';
-const BASE = [100, 140, 180, 220];
-const check = (layout = OK, o: { grid?: number; target?: number; cash?: number; base?: number[]; id?: string } = {}) => {
-  const { map, errors } = parseMap(o.id ?? 'test', 'テスト', o.grid ?? 6, o.target ?? 4000, o.cash ?? 1200, layout, o.base ?? BASE);
+// 正しい最小の盤（7×7・近道 1 本）を土台に、1 か所ずつ壊して確認する
+const OK = [
+  'B00a011',
+  'C..2..1',
+  '4..2..b',
+  '4..P..1',
+  'c..2..3',
+  'P..C..3',
+  '44dLC33',
+];
+const BASE = [100, 120, 140, 180, 220];
+const set = (rows: string[], x: number, y: number, ch: string) =>
+  rows.map((r, i) => (i === y ? r.slice(0, x) + ch + r.slice(x + 1) : r));
+const check = (rows = OK, o: { target?: number; cash?: number; base?: number[]; id?: string } = {}) => {
+  const { map, errors } = parseMap(o.id ?? 'test', 'テスト', o.target ?? 4000, o.cash ?? 1200, rows, o.base ?? BASE);
   return [...errors, ...validateMap(map)].join('\n');
 };
 
@@ -14,32 +24,48 @@ describe('収録マップ', () => {
     for (const m of MAPS) expect(validateMap(m)).toEqual([]);
     expect(validateMaps(MAPS)).toEqual([]);
   });
-  it('マスの座標が重ならない', () => {
-    for (const m of MAPS) {
-      expect(new Set(m.squares.map((q) => squareXY(m.grid, q.id).join(','))).size).toBe(m.squares.length);
-    }
+  it('どのマップにも分かれ道がある', () => {
+    for (const m of MAPS) expect(m.links.filter((l) => l.length >= 3).length).toBeGreaterThan(0);
+  });
+  it('つながりは両方向', () => {
+    for (const m of MAPS) m.links.forEach((l, a) => l.forEach((b) => expect(m.links[b]).toContain(a)));
+  });
+});
+
+describe('進む方向', () => {
+  const m = MAPS[0];
+  it('来た方向は選べない', () => {
+    const fork = m.squares.findIndex((_, i) => m.links[i].length === 3);
+    const back = m.links[fork][0];
+    expect(forwardOptions(m, fork, back)).not.toContain(back);
+    expect(forwardOptions(m, fork, back)).toHaveLength(2);
+    expect(forwardOptions(m, fork, null)).toHaveLength(3);
+  });
+  it('矢印', () => {
+    expect(arrow(m, 0, 1)).toBe('→');
+    expect(arrow(m, 1, 0)).toBe('←');
+    expect(arrow(m, 0, 7)).toBe('↓');
   });
 });
 
 describe('マップの確認', () => {
   it('土台の盤は問題なし', () => expect(check()).toBe(''));
-  it('マスの数', () => expect(check('B00a0 C11b1 P22c2 C33d')).toMatch('外周'));
-  it('盤の大きさ', () => expect(check(OK, { grid: 3 })).toMatch('盤の大きさ'));
-  it('使えない記号', () => expect(check('B00a0 C11b1 P22c2 C33dX')).toMatch('記号「X」'));
-  it('存在しない通り番号', () => expect(check('B00a0 C11b1 P22c2 C33d5')).toMatch('記号「5」'));
-  it('スタートが銀行でない', () => expect(check('0B0a0 C11b1 P22c2 C33d3')).toMatch('最初のマス'));
-  it('銀行が 2 つ', () => expect(check('B00a0 C11b1 B22c2 C33d3')).toMatch('銀行はちょうど 1 つ'));
-  it('スタンプが足りない', () => expect(check('B00a0 C11b1 P22c2 C3333')).toMatch('鍵のスタンプは 1 つ必要'));
-  it('スタンプが重なる', () => expect(check('B00a0 C11a1 P22c2 C33d3')).toMatch('花のスタンプは 1 つ必要'));
-  it('お店が 1 軒だけの通り', () => expect(check('B00a0 C11b1 P00c2 C33d3')).toMatch('もりの通りのお店は'));
-  it('お店が多すぎる通り', () => expect(check('B00a0 C00b0 P22c2 C33d3', { base: [100, 140, 180, 220] }))
-    .toMatch(/あさひ通りのお店は|みなと通りのお店は/));
-  it('通りが離れすぎ', () => expect(check('B01a0 C10b1 P22c2 C33d3')).toMatch('離れすぎ'));
-  it('同じ特殊マスが並ぶ', () => expect(check('B00a0 CC1b1 P22c2 133d3')).toMatch('同じ特殊マス'));
-  it('チャンスがない', () => expect(check('B00a0 P11b1 L22c2 P33d3')).toMatch('チャンスマス'));
+  it('行の長さ', () => expect(check([...OK.slice(0, 6), '44dLC3'])).toMatch('行の長さ'));
+  it('使えない記号', () => expect(check(set(OK, 1, 0, 'X'))).toMatch('記号「X」'));
+  it('存在しない通り番号', () => expect(check(set(OK, 1, 0, '9'))).toMatch('記号「9」'));
+  it('行き止まり', () => expect(check([...OK, '.....3.'])).toMatch('行き止まり'));
+  it('つながっていないマス', () => expect(check(set(set(OK, 1, 3, 'C'), 1, 2, '.'))).toMatch(/つながっていない|行き止まり/));
+  it('2×2 のかたまり', () => expect(check(set(OK, 1, 1, '0'))).toMatch('2×2'));
+  it('分かれ道がない', () => expect(check(OK.map((r, y) => (y > 0 && y < 6 ? set([r], 3, 0, '.')[0] : r)))).toMatch('分かれ道'));
+  it('銀行が 2 つ', () => expect(check(set(OK, 0, 5, 'B'))).toMatch('銀行はちょうど 1 つ'));
+  it('スタンプが重なる', () => expect(check(set(OK, 6, 2, 'a'))).toMatch('花のスタンプは 1 つ必要'));
+  it('お店が多すぎる通り', () => expect(check(set(OK, 3, 3, '2').map((r, y) => (y === 5 ? set([r], 3, 0, '2')[0] : r)))).toMatch(/もりの通りのお店は/));
+  it('通りが離れすぎ', () => expect(check(set(set(OK, 2, 6, '0'), 4, 0, 'd'))).toMatch('離れすぎ'));
+  it('同じ特殊マスが並ぶ', () => expect(check(set(OK, 3, 4, 'P'))).toMatch('同じ特殊マス'));
+  it('チャンスがない', () => expect(check(OK.map((r) => r.replaceAll('C', 'L')))).toMatch('チャンスマス'));
   it('初期資金が少ない', () => expect(check(OK, { cash: 200 })).toMatch('初期資金'));
   it('目標が低すぎる', () => expect(check(OK, { target: 2000 })).toMatch('目標'));
-  it('価格が 0 以下', () => expect(check(OK, { base: [0, 140, 180, 220] })).toMatch('価格が正しくありません'));
+  it('価格が 0 以下', () => expect(check(OK, { base: [0, 120, 140, 180, 220] })).toMatch('価格が正しくありません'));
   it('id の形式', () => expect(check(OK, { id: 'Bad Id' })).toMatch('id'));
   it('id の重なり', () => expect(validateMaps([MAPS[0], MAPS[0]])).toHaveLength(1));
 });

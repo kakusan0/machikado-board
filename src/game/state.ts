@@ -10,6 +10,8 @@ export interface Square {
   street?: number; // shop のとき
   base?: number; // shop / lot の基本価格
   stamp?: number; // 0..3（パン・花・本・鍵）
+  x: number; // 盤の上の位置（左上が 0,0）
+  y: number;
 }
 
 export interface Street {
@@ -20,11 +22,13 @@ export interface Street {
 export interface GameMap {
   id: string;
   name: string;
-  grid: number; // 盤は grid×grid の外周
+  width: number; // 盤の横のマス数
+  height: number;
   target: number; // 目標の総資産
   startCash: number;
   streets: Street[];
   squares: Square[];
+  links: number[][]; // マスごとの、つながっているマス
 }
 
 export interface Player {
@@ -34,6 +38,7 @@ export interface Player {
   cpu: CpuLevel | null; // null は人
   cash: number;
   pos: number;
+  prev: number | null; // 直前にいたマス（後ろへは戻れない）
   stamps: boolean[]; // 4 種
   level: number; // 昇格の回数
   shares: number[]; // 通りごとの持ち株
@@ -51,7 +56,8 @@ export type Pending =
   | { kind: 'buyShop'; sq: number }
   | { kind: 'invest'; sq: number }
   | { kind: 'buyout'; sq: number }
-  | { kind: 'buyLot'; sq: number };
+  | { kind: 'buyLot'; sq: number }
+  | { kind: 'direction'; sq: number; options: number[] };
 
 export type Phase = 'roll' | 'decide' | 'stock' | 'over';
 
@@ -77,6 +83,7 @@ export interface GameState {
   bankTouched: boolean; // この番に銀行を通った・止まった
   exchangeTouched: boolean; // この番に両替所に止まった
   dice: number | null;
+  moving: { left: number; depth: number } | null; // 移動の途中（分かれ道で止まっている）
   path: number[]; // 直前の移動経路（画面の演出用）
   deck: number[]; // チャンスカードの山（カード番号）
   lastCard: number | null;
@@ -87,6 +94,7 @@ export interface GameState {
 
 export type Action =
   | { type: 'roll' }
+  | { type: 'move'; to: number }
   | { type: 'buyShop' }
   | { type: 'invest'; sq: number; amount: number }
   | { type: 'buyout' }

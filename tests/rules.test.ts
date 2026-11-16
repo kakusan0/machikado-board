@@ -16,6 +16,13 @@ const players = [
 const game = (mode: 'easy' | 'normal' = 'normal', mapId = 'corner') => newGame({ mapId, mode, seed: 1, players });
 const shopsOf = (s: GameState, street: number) => getMap(s.mapId).squares.filter((q) => q.kind === 'shop' && q.street === street).map((q) => q.id);
 const own = (s: GameState, sq: number, pid: number) => { s.props[sq]!.owner = pid; };
+// sq のひとつ手前（分かれ道でないマス）に、sq へ向かう向きで立たせる。サイコロ 1 で sq に止まる
+const standBefore = (s: GameState, sq: number) => {
+  const m = getMap(s.mapId);
+  const w = m.links[sq].find((v) => m.links[v].length === 2)!;
+  s.players[0].pos = w;
+  s.players[0].prev = m.links[w].find((v) => v !== sq)!;
+};
 
 describe('利用料', () => {
   it('ふつう：所有数で 15/25/35% 、独占で +10%', () => {
@@ -35,8 +42,8 @@ describe('利用料', () => {
     expect(adjacencyMult(s, 1)).toBe(1);
     own(s, 2, 1);
     expect(adjacencyMult(s, 1)).toBe(1.5);
-    own(s, 6, 2); own(s, 7, 2); own(s, 9, 3);
-    expect(adjacencyMult(s, 7)).toBe(1.5);
+    own(s, 5, 2); own(s, 6, 2); own(s, 9, 3);
+    expect(adjacencyMult(s, 6)).toBe(1.5);
     expect(feeRate(s, 2)).toBeCloseTo(0.3);
   });
   it('持ち主がお休み中なら 0', () => {
@@ -50,7 +57,7 @@ describe('利用料', () => {
 describe('増資の上限', () => {
   it('基本価格 ×（1＋所有数×0.5）、独占で ×3', () => {
     const s = game();
-    const [a, b, c] = shopsOf(s, 1);
+    const [a, b, c] = shopsOf(s, 2); // 3 軒の通り
     const base = getMap('corner').squares[a].base!;
     own(s, a, 0);
     expect(investCap(s, a)).toBe(base * 1.5);
@@ -96,7 +103,7 @@ describe('株', () => {
     const sq = shopsOf(s, 0)[0];
     own(s, sq, 1);
     s.players[2].shares[0] = 100;
-    s.players[0].pos = sq - 1;
+    standBefore(s, sq);
     // サイコロが 1 になる種を探す
     for (let seed = 0; seed < 500; seed++) {
       const t = structuredClone(s);
@@ -146,7 +153,7 @@ describe('昇格と勝利', () => {
   it('スタンプ 4 つで銀行に戻ると昇格して給料', () => {
     let s = game();
     s.players[0].stamps = [true, true, true, true];
-    s.players[0].pos = getMap('corner').squares.length - 1;
+    standBefore(s, 0);
     const cash = s.players[0].cash;
     s = apply(s, { type: 'roll' });
     expect(s.players[0].level).toBe(1);
@@ -156,7 +163,7 @@ describe('昇格と勝利', () => {
   it('目標に届いて銀行を通ると勝ち', () => {
     let s = game();
     s.players[0].cash = 9000;
-    s.players[0].pos = getMap('corner').squares.length - 1;
+    standBefore(s, 0);
     s = apply(s, { type: 'roll' });
     expect(s.phase).toBe('over');
     expect(s.winner).toBe(0);
@@ -173,7 +180,7 @@ describe('破産', () => {
     const mine = shopsOf(s, 0)[0];
     own(s, mine, 0);
     s.players[0].cash = 0;
-    s.players[0].pos = sq - 1;
+    standBefore(s, sq);
     let found = false;
     for (let seed = 0; seed < 500 && !found; seed++) {
       const t = structuredClone(s);
@@ -222,5 +229,45 @@ describe('CPU だけで 100 試合', () => {
       reasons[s.overReason!] = (reasons[s.overReason!] ?? 0) + 1;
     }
     console.log('終わり方', reasons);
+  });
+});
+
+describe('分かれ道', () => {
+  // サイコロの目が n になる乱数の種を探す
+  const withDice = (s: GameState, n: number) => {
+    for (let seed = 0; seed < 1000; seed++) {
+      const t = structuredClone(s);
+      t.rng = seed;
+      if (apply(t, { type: 'roll' }).dice === n) return t;
+    }
+    throw new Error('not found');
+  };
+  it('分かれ道で止まって方向を選び、残りの歩数だけ進む', () => {
+    const m = getMap('corner');
+    const fork = m.squares.find((q) => m.links[q.id].length === 3 && q.y === 0)!; // 上の分かれ道（パンのスタンプ）
+    let s = game();
+    const before = m.links[fork.id].find((v) => m.squares[v].y === 0 && m.squares[v].x < fork.x)!;
+    s.players[0].pos = before;
+    s.players[0].prev = m.links[before].find((v) => v !== fork.id)!;
+    s = withDice(s, 3);
+    s = apply(s, { type: 'roll' });
+    expect(s.phase).toBe('decide');
+    expect(s.pending).toMatchObject({ kind: 'direction', sq: fork.id });
+    const opts = (s.pending as { options: number[] }).options;
+    expect(opts).toHaveLength(2);
+    expect(opts).not.toContain(before); // 後ろには戻れない
+    expect(() => apply(s, { type: 'move', to: before })).toThrow();
+    const down = opts.find((v) => m.squares[v].y === 1)!;
+    const t = apply(s, { type: 'move', to: down });
+    expect(t.players[0].pos).toBe(m.links[down].find((v) => v !== fork.id));
+    expect(t.players[0].prev).toBe(down);
+    expect(t.moving).toBeNull();
+  });
+  it('はじめの銀行では、どちらへも進める（来た方向がない）', () => {
+    let s = withDice(game(), 1);
+    s = apply(s, { type: 'roll' });
+    expect(s.pending).toMatchObject({ kind: 'direction', sq: 0, options: [1, 7] });
+    s = apply(s, { type: 'move', to: 7 });
+    expect(s.players[0].pos).toBe(7);
   });
 });
