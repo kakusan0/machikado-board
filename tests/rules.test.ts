@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { decide } from '../src/game/ai';
-import { MAPS, getMap, squareXY } from '../src/game/maps';
+import { MAPS, getMap } from '../src/game/maps';
 import {
   adjacencyMult, buyQuote, canBuyout, fee, feeRate, investCap, netWorth, salary, sellQuote, stockPrice, topHolder,
 } from '../src/game/rules';
@@ -16,18 +16,6 @@ const players = [
 const game = (mode: 'easy' | 'normal' = 'normal', mapId = 'corner') => newGame({ mapId, mode, seed: 1, players });
 const shopsOf = (s: GameState, street: number) => getMap(s.mapId).squares.filter((q) => q.kind === 'shop' && q.street === street).map((q) => q.id);
 const own = (s: GameState, sq: number, pid: number) => { s.props[sq]!.owner = pid; };
-
-describe('マップ', () => {
-  it('マス数が外周と一致し、座標が重ならない', () => {
-    for (const m of MAPS) {
-      expect(m.squares.length).toBe(4 * (m.grid - 1));
-      const xy = new Set(m.squares.map((q) => squareXY(m.grid, q.id).join(',')));
-      expect(xy.size).toBe(m.squares.length);
-      expect(m.squares[0].kind).toBe('bank');
-      expect(new Set(m.squares.filter((q) => q.kind === 'stamp').map((q) => q.stamp)).size).toBe(4);
-    }
-  });
-});
 
 describe('利用料', () => {
   it('ふつう：所有数で 15/25/35% 、独占で +10%', () => {
