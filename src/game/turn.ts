@@ -45,6 +45,7 @@ export function newGame(o: NewGameOptions): GameState {
     path: [],
     deck: [],
     lastCard: null,
+    salary: null,
     log: [],
     winner: null,
     overReason: null,
@@ -245,11 +246,13 @@ function atBank(s: GameState) {
   const map = getMap(s.mapId);
   const p = cur(s);
   s.bankTouched = true;
+  // 止まったときだけでなく、通ったときも、スタンプが 4 つそろっていれば昇格して給料
   if (p.stamps.every(Boolean)) {
     p.level += 1;
     const pay = salary(p.level);
     p.cash += pay;
     p.stamps = [false, false, false, false];
+    s.salary = { player: p.id, amount: pay, level: p.level };
     log(s, p.id, `昇格！ 段階 ${p.level}。給料 ${pay}G`);
   }
   if (netWorth(s, p.id) >= map.target) {
@@ -414,6 +417,7 @@ function nextTurn(s: GameState) {
   s.dice = null;
   s.moving = null;
   s.lastCard = null;
+  s.salary = null;
 }
 
 // カードで移動したときは移動先の解決まで済ませて true を返す

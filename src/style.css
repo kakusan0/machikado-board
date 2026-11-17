@@ -158,8 +158,7 @@ legend { font-weight: 900; margin-bottom: 6px; }
 .top .detail { font-size: 13px; }
 .top select { font: inherit; border-radius: 8px; border: 1.5px solid var(--line); background: var(--panel); color: var(--ink); padding: 3px 6px; }
 .notice { font-size: 13px; color: var(--sub); }
-@media (max-width: 600px) { .board3d .hud-row { font-size: 11px; } .board3d .hud-tip { font-size: 11px; color: #4A5373; background: rgba(255,255,255,.7); border-radius: 99px; padding: 2px 10px; width: fit-content; }
-.board3d .hint { display: none; } }
+@media (max-width: 600px) { .board3d .hud-row { font-size: 11px; } .board3d .hud-tip { display: none; } .board3d .hint { font-size: 10px; } }
 .build { font-size: 12px; color: var(--sub); text-align: center; margin: 0; }
 
 /* 遊び方 */
@@ -190,3 +189,13 @@ legend { font-weight: 900; margin-bottom: 6px; }
 .pl .status { font-size: 11px; background: var(--ink); color: var(--bg); border-radius: 6px; padding: 1px 6px; }
 .pl .bubble { margin-top: 6px; background: var(--panel); border: 2px solid var(--pc); border-radius: 12px; padding: 4px 10px; font-weight: 700; width: fit-content; animation: pop .2s ease-out; }
 @keyframes pop { from { transform: scale(.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+/* 頭上のピン（2D） */
+.sq.owned { padding-top: 18px; }
+.sq .pin { position: absolute; top: 3px; left: 50%; transform: translateX(-50%); background: var(--pc); color: #fff; font-size: 11px; font-weight: 900; line-height: 1; padding: 3px 7px; border-radius: 99px; border: 1.5px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); white-space: nowrap; z-index: 2; animation: pinbob 1.6s ease-in-out infinite alternate; }
+.sq .pin::after { content: ''; position: absolute; left: 50%; bottom: -5px; transform: translateX(-50%); border: 4px solid transparent; border-top-color: var(--pc); border-bottom: 0; }
+@keyframes pinbob { from { translate: 0 0; } to { translate: 0 -2px; } }
+@media (prefers-reduced-motion: reduce) { .sq .pin { animation: none; } }
+@media (max-width: 600px) { .sq .pin { font-size: 9px; padding: 2px 4px; } .sq.owned { padding-top: 14px; } }
+.grid-10 .sq .pin { font-size: 9px; padding: 2px 4px; }
+.board-info .card.salary, .board3d .hud-card.salary { border-color: #2FA35B; background: #E6F6EA; color: #1B2340; animation: pop .25s ease-out; }

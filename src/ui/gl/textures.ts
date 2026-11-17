@@ -276,3 +276,16 @@ export function lantern(): Canvas {
   g.fillStyle = '#FFF2D8'; g.font = `900 70px ${FONT}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('祭', 64, 128);
   return c;
 }
+
+// 頭上のピンの札（利用料）。512×256（ミップマップのため 2 のべき乗）
+export function pinLabel(text: string, color: string): Canvas {
+  const [c, g] = canvas(512, 256);
+  g.fillStyle = '#FFFFFF'; g.beginPath(); g.roundRect(4, 4, 504, 248, 64); g.fill();
+  g.fillStyle = color; g.beginPath(); g.roundRect(18, 18, 476, 220, 52); g.fill();
+  g.fillStyle = 'rgba(255,255,255,.18)'; g.beginPath(); g.roundRect(30, 26, 452, 90, 40); g.fill();
+  g.fillStyle = '#FFFFFF'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  fitText(g, text, 430, 150);
+  g.lineWidth = 10; g.strokeStyle = 'rgba(0,0,0,.25)'; g.strokeText(text, 256, 136);
+  g.fillText(text, 256, 136);
+  return c;
+}

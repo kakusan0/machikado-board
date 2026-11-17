@@ -62,9 +62,13 @@ export function renderBoard(s: GameState, v: BoardView): HTMLElement {
     street ? h('span', { class: 'strip' }) : null,
     sq.kind === 'shop'
       ? [h('span', { class: 'nm' }, sq.name), h('span', { class: 'val' }, g(pr!.value)),
-        owner ? h('span', { class: 'fee' }, `利用料 ${fee(s, sq.id)}`) : h('span', { class: 'fee vacant' }, '空き店舗')]
+        owner ? null : h('span', { class: 'fee vacant' }, '空き店舗')]
       : [h('span', { class: 'ic' }, icon), h('span', { class: 'nm' }, sub)],
-    owner?.closed ? h('span', { class: 'closed' }, '休') : null,
+    // 頭上のピン：持ち主の色の札に利用料（休み中は「休業」）
+    owner ? h('span', {
+      class: `pin${owner.closed ? ' off' : ''}`, style: { '--pc': owner.closed ? '#8890A8' : owner.color },
+      title: `${owner.name}のお店・利用料 ${fee(s, sq.id)}G`,
+    }, owner.closed ? '休業' : `${fee(s, sq.id).toLocaleString()}G`) : null,
     choices.has(sq.id) && s.pending?.kind === 'direction' ? h('span', { class: 'arrow' }, arrow(map, s.pending.sq, sq.id)) : null,
     );
     board.append(cell);
@@ -95,6 +99,7 @@ export function renderBoard(s: GameState, v: BoardView): HTMLElement {
       h('span', {}, `目標 ${g(map.target)}・${s.round} 周目`),
       h('span', {}, `トップ：${leader.name} ${g(netWorth(s, leader.id))}`),
       s.dice ? h('span', { class: 'dice', 'aria-label': `サイコロ ${s.dice}` }, '⚀⚁⚂⚃⚄⚅'[s.dice - 1]) : null),
+    s.salary ? h('div', { class: 'card salary', role: 'status' }, h('b', {}, `${s.players[s.salary.player].name}が昇格！`), ` 段階 ${s.salary.level}・給料 ${g(s.salary.amount)}`) : null,
     card ? h('div', { class: 'card' }, h('b', {}, card.title), ' ', card.text) : null,
     v.message ? h('div', { class: 'msg' }, v.message) : null,
   );

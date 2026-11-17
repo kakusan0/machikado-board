@@ -288,3 +288,45 @@ describe('CPU の強さ', () => {
     expect(wins.normal).toBeGreaterThan(wins.easy);
   });
 });
+
+describe('銀行を通過したときの給料', () => {
+  it('止まらずに通過しても、スタンプが 4 つそろっていれば昇格して給料が入る', () => {
+    const m = getMap('corner');
+    // 銀行の 2 つ手前に、銀行へ向かう向きで立つ（7 → 0 の順に進む向き）
+    let s = game();
+    const p = s.players[0];
+    p.stamps = [true, true, true, true];
+    const before = m.links[0].find((v) => v !== 1)!; // 銀行の下のマス
+    p.pos = m.links[before].find((v) => v !== 0)!;
+    p.prev = m.links[p.pos].find((v) => v !== before)!;
+    // サイコロ 3：2 マス目で銀行を通り、3 マス目で止まる
+    for (let seed = 0; seed < 1000; seed++) {
+      const t = structuredClone(s);
+      t.rng = seed;
+      if (apply(t, { type: 'roll' }).dice === 3) { s = t; break; }
+    }
+    const cash = s.players[0].cash;
+    const t = apply(s, { type: 'roll' });
+    expect(t.path).toContain(0); // 銀行を通った
+    expect(t.players[0].pos).not.toBe(0); // 止まってはいない
+    expect(t.players[0].level).toBe(1);
+    expect(t.salary).toEqual({ player: 0, amount: salary(1), level: 1 });
+    expect(t.players[0].cash).toBeGreaterThanOrEqual(cash + salary(1) - 300); // 止まったマスで利用料を払うことがある
+    expect(t.players[0].stamps.every((x) => !x)).toBe(true);
+  });
+  it('スタンプが足りなければ給料は入らない', () => {
+    let s = game();
+    s.players[0].stamps = [true, true, true, false];
+    s.players[0].pos = 1;
+    s.players[0].prev = 2;
+    for (let seed = 0; seed < 1000; seed++) {
+      const t = structuredClone(s);
+      t.rng = seed;
+      if (apply(t, { type: 'roll' }).dice === 2) { s = t; break; }
+    }
+    const t = apply(s, { type: 'roll' });
+    expect(t.path).toContain(0);
+    expect(t.players[0].level).toBe(0);
+    expect(t.salary).toBeNull();
+  });
+});

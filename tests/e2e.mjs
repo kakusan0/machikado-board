@@ -93,6 +93,10 @@ for (const [label, viewport] of [['PC', { width: 1280, height: 900 }], ['スマ�
     assert(forks > 0, '分かれ道に一度も止まらなかった');
     const owned = await page.locator('.sq.owned').count();
     assert(owned >= bought, `買ったお店が盤面に出ていない（${owned}/${bought}）`);
+    // 持ち主のいるマスには、利用料のピンが立つ
+    const pins = await page.locator('.sq .pin').allTextContents();
+    assert(pins.length === owned, `ピンの数が合わない（${pins.length}/${owned}）`);
+    assert(pins.every((x) => /^[\d,]+G$|^休業$/.test(x)), `ピンの文字がおかしい：${pins.join(' ')}`);
     assert(errors.length === 0, `エラー：${errors.join(' / ')}`);
     await page.close();
   });
@@ -122,6 +126,9 @@ await step('3D：切り替えると立体の盤面が出て、サイコロを振
   const tris = Number(await page.locator('.board3d').getAttribute('data-triangles'));
   assert(tris > 1000, `三角形が少なすぎる（${tris}）`);
   await playMyTurn(page);
+  // 1 周すれば、だれかがお店を買っていて、頭上にピンが立つ
+  const pins3d = Number(await page.locator('.board3d').getAttribute('data-pins'));
+  assert(pins3d >= 1, `3D のピンがない（${pins3d}）`);
   // 細かさを「高」にすると三角形が増える
   await page.locator('.top select').selectOption('high');
   await page.waitForTimeout(800);

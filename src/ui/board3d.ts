@@ -2,7 +2,7 @@
 import { CARDS } from '../game/cards';
 import { getMap } from '../game/maps';
 import type { GameMap } from '../game/state';
-import { netWorth } from '../game/rules';
+import { fee, netWorth } from '../game/rules';
 import type { GameState } from '../game/state';
 import type { BoardView } from './board2d';
 import { g as gold, h } from './dom';
@@ -22,7 +22,7 @@ export interface Board3D {
   destroy(): void;
 }
 
-interface SceneItem extends Item { spin?: number; bob?: number }
+interface SceneItem extends Item { spin?: number; bob?: number; pinBob?: number; billboard?: boolean }
 interface Meshes {
   cube: Mesh; cyl: Mesh; cone: Mesh; sphere: Mesh; prism: Mesh; plane: Mesh; rbox: Mesh;
   pawn: Mesh; pot: Mesh; lamp: Mesh; dice: Mesh[]; bowl: Mesh;
@@ -106,6 +106,7 @@ export function createBoard3D(initial: Detail): Board3D | null {
       lantern: r.tex('lantern', T.lantern, false),
     };
     const out: SceneItem[] = [];
+    let pins = 0;
     const add = (mesh: Mesh, p: Vec3, sc: Vec3, o: Partial<SceneItem> = {}) =>
       out.push({ mesh, p, s: sc, r: 0, c: [1, 1, 1], tex: r.white, uvs: [1, 1], ...o });
     const C = T.rgb;
@@ -184,12 +185,19 @@ export function createBoard3D(initial: Detail): Board3D | null {
       const at = (lx: number, lz: number): [number, number] => [x + cs * lx + sn * lz, z - sn * lx + cs * lz];
       const pr = s.props[sq.id];
       const owner = pr?.owner != null ? s.players[pr.owner] : null;
-      const flag = (y: number) => {
+      // 頭上のピン：持ち主の色の札に利用料（休み中は「休業」）。ふわふわ揺れて、札はいつもカメラを向く
+      const pin = (y: number) => {
         if (!owner) return;
-        const [fx, fz] = at(-0.24, -0.2);
-        add(M.cyl, [fx, y, fz], [0.025, 0.42, 0.025], { c: C('#EEF0F4') });
-        add(M.cube, [fx, y + 0.27, fz], [0.02, 0.13, 0.2], { c: C(owner.color), r: rot + Math.PI / 2 });
-        add(M.sphere, [fx, y + 0.42, fz], [0.05, 0.05, 0.05], { c: C('#C9A227') });
+        const closed = owner.closed;
+        const text = closed ? '休業' : `${fee(s, sq.id).toLocaleString()}G`;
+        const color = closed ? '#8890A8' : owner.color;
+        const phase = sq.id * 0.9;
+        add(M.cyl, [x, y, z], [0.018, 0.2, 0.018], { c: C('#EEF0F4'), pinBob: phase });
+        add(M.cone, [x, y + 0.34, z], [0.18, -0.14, 0.18], { c: C(color), pinBob: phase });
+        add(M.cube, [x, y + 0.33, z], [0.6, 0.3, 0.012], {
+          tex: r.tex(`sign:pin:${color}:${text}`, () => T.pinLabel(text, color), false), pinBob: phase, billboard: true, flat: 0.35,
+        });
+        pins++;
       };
       const plate = (color: string, tex = tx.stone) => add(M.cube, [x, 0, z], [0.94, 0.06, 0.94], { tex, c: C(color, 0.5), uvs: [1, 1] });
 
@@ -235,7 +243,7 @@ export function createBoard3D(initial: Detail): Board3D | null {
           add(M.pot, [qx, 0.06, qz], [0.1, 0.08, 0.1], { c: C('#B5643A') });
           add(M.sphere, [qx, 0.11, qz], [0.12, 0.1, 0.12], { tex: tx.leaves });
         }
-        flag(0.095 + hgt + 0.25);
+        pin(0.095 + hgt + 0.3);
       } else if (sq.kind === 'bank') {
         plate('#C9D2E6');
         add(M.cube, [x, 0.06, z], [0.6, 1.5, 0.6], { tex: tx.bank, uvs: [1, 3], r: rot, shadow: 1.6 });
@@ -275,7 +283,7 @@ export function createBoard3D(initial: Detail): Board3D | null {
           }
           const [lx2, lz2] = at(0, 0.42);
           add(M.cyl, [lx2, 0.2, lz2], [0.12, 0.16, 0.12], { tex: tx.lantern, flat: 0.5 });
-          flag(0.06);
+          pin(0.4);
         } else {
           const [px, pz] = at(0, 0.3);
           add(M.cyl, [px, 0.06, pz], [0.025, 0.28, 0.025], { tex: tx.wood });
@@ -284,6 +292,7 @@ export function createBoard3D(initial: Detail): Board3D | null {
       }
     });
     items = out;
+    el.dataset.pins = String(pins);
   }
 
   function sig(s: GameState) {
@@ -390,9 +399,15 @@ export function createBoard3D(initial: Detail): Board3D | null {
     const sunRaw: Vec3 = [0.45, 0.78, 0.35];
     const sl = Math.hypot(...sunRaw);
     const sun: Vec3 = [sunRaw[0] / sl, sunRaw[1] / sl, sunRaw[2] / sl];
+    const pinScale = Math.min(1.9, Math.max(1, 640 / Math.max(1, canvas.clientWidth)));
     const anim = items.map((it): SceneItem => {
       if (it.spin !== undefined) return { ...it, p: [it.p[0], it.p[1] + 0.05 + Math.sin(t / 420 + it.spin) * 0.06, it.p[2]], r: t / 1300 + it.spin };
       if (it.bob) return { ...it, p: [it.p[0], it.p[1] + Math.sin(t / 300) * 0.02, it.p[2]] };
+      if (it.pinBob !== undefined) {
+        // 札は小さい画面ほど大きくする（スマホでも金額が読めるように）
+        const sc = it.billboard ? pinScale : 1;
+        return { ...it, p: [it.p[0], it.p[1] + Math.sin(t / 450 + it.pinBob) * 0.05, it.p[2]], s: [it.s[0] * sc, it.s[1] * sc, it.s[2]], r: it.billboard ? cam.yaw : it.r };
+      }
       return it;
     });
     const dyn = dynamicItems(t);
@@ -510,6 +525,7 @@ export function createBoard3D(initial: Detail): Board3D | null {
       h('div', { class: 'hud-row' }, h('b', {}, map.name), h('span', {}, `目標 ${gold(map.target)}・${s.round} 周目`),
         h('span', {}, `トップ：${leader.name} ${gold(netWorth(s, leader.id))}`)),
       h('div', { class: 'hud-tip' }, 'ドラッグで回転・ピンチやホイールで拡大・マスをタップで詳しく'),
+      s.salary ? h('div', { class: 'hud-card salary', role: 'status' }, h('b', {}, `${s.players[s.salary.player].name}が昇格！`), ` 段階 ${s.salary.level}・給料 ${gold(s.salary.amount)}`) : null,
       card ? h('div', { class: 'hud-card' }, h('b', {}, card.title), ' ', card.text) : null,
       v.message ? h('div', { class: 'hud-card' }, v.message) : null,
     ].filter((x): x is HTMLDivElement => x != null));
