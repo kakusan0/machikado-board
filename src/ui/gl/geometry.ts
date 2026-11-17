@@ -136,3 +136,10 @@ export function roundedBox(seg: number, r: number, atlas?: number[]): Geo {
   });
   return out;
 }
+
+// 立てた 1 枚の板（正面は +z、横 -0.5〜0.5、高さ 0〜1）。いつも手前に描く札に使う（裏面が描かれないように）
+export function card(): Geo {
+  const out: Geo = [];
+  quad(out, [[-.5, 0, 0], [.5, 0, 0], [.5, 1, 0], [-.5, 1, 0]], [0, 0, 1]);
+  return out;
+}

@@ -25,7 +25,7 @@ export interface Board3D {
 interface SceneItem extends Item { spin?: number; bob?: number; pinBob?: number; billboard?: boolean }
 interface Meshes {
   cube: Mesh; cyl: Mesh; cone: Mesh; sphere: Mesh; prism: Mesh; plane: Mesh; rbox: Mesh;
-  pawn: Mesh; pot: Mesh; lamp: Mesh; dice: Mesh[]; bowl: Mesh;
+  pawn: Mesh; pot: Mesh; lamp: Mesh; dice: Mesh[]; bowl: Mesh; card: Mesh;
 }
 
 const SEG: Record<Detail, number> = { low: 12, mid: 24, high: 48 };
@@ -77,6 +77,7 @@ export function createBoard3D(initial: Detail): Board3D | null {
   let fontsReady = false;
   const disp: { pos: Vec3; from: Vec3; to: Vec3; t0: number }[] = [];
   let diceAnim = { value: 0, t0: 0 };
+  let choiceSpots: { sq: number; p: Vec3 }[] = [];
 
   function makeMeshes(): Meshes {
     r.dropMeshes();
@@ -85,7 +86,7 @@ export function createBoard3D(initial: Detail): Board3D | null {
     const rs = detail === 'low' ? 2 : detail === 'mid' ? 4 : 8;
     return {
       cube: r.mesh(G.cube()), cyl: r.mesh(G.cylinder(seg)), cone: r.mesh(G.cone(seg)), sphere: r.mesh(G.sphere(lat, seg)),
-      prism: r.mesh(G.prism()), plane: r.mesh(G.plane()), rbox: r.mesh(G.roundedBox(rs, 0.12)),
+      prism: r.mesh(G.prism()), plane: r.mesh(G.plane()), card: r.mesh(G.card()), rbox: r.mesh(G.roundedBox(rs, 0.12)),
       pawn: r.mesh(G.lathe([[.5, 0], [.5, .07], [.42, .12], [.3, .2], [.2, .45], [.16, .62], [.3, .68], [.32, .72], [.16, .76], [0, .78]], seg)),
       pot: r.mesh(G.lathe([[.32, 0], [.5, .8], [.56, .85], [.56, 1], [0, 1]], seg)),
       lamp: r.mesh(G.lathe([[.5, 0], [.5, .04], [.18, .08], [.12, .3], [.1, .95], [.18, 1], [0, 1]], seg)),
@@ -343,11 +344,31 @@ export function createBoard3D(initial: Detail): Board3D | null {
       if (diceAnim.value !== s.dice) diceAnim = { value: s.dice, t0: t };
       out.push(...diceItems(t));
     } else diceAnim.value = 0;
+    const labels: SceneItem[] = []; // 矢印より手前に描くので、最後に足す
+    // 分かれ道：選べるマスの家の上に、名前と状態の札（自分が選ぶときは緑、ほかの人のときは灰色）
+    choiceSpots = [];
+    if (s.pending?.kind === 'direction' && s.phase === 'decide') {
+      const mine = !!v.choices?.length;
+      const color = mine ? '#2FA35B' : '#6B7390';
+      const sc = Math.min(1.7, Math.max(1, 640 / Math.max(1, canvas.clientWidth)));
+      s.pending.options.forEach((o, k) => {
+        const c = squareCenter(s, o);
+        const [name, sub] = choiceText(s, o);
+        // 札どうしが重ならないよう、2 枚目以降は少しずつ高くする
+        const y = labelHeight(s, o) + k * 0.5 * sc + Math.sin(t / 300 + o) * 0.04;
+        labels.push({
+          mesh: M.card, p: [c[0], y, c[2]], s: [1.6 * sc, 0.4 * sc, 1], r: cam.yaw,
+          tex: r.tex(`sign:choice:${color}:${name}:${sub}`, () => T.choiceLabel(name, sub, color), false),
+          c: [1, 1, 1], uvs: [1, 1], flat: 0.4, onTop: true,
+        });
+        choiceSpots.push({ sq: o, p: [c[0], y + 0.2 * sc, c[2]] });
+      });
+    }
+    el.dataset.choices = String(choiceSpots.length);
     // 分かれ道で選べるマス
     for (const c0 of v.choices ?? []) {
       const c = squareCenter(s, c0);
       overlay.push({ mesh: M.plane, p: [c[0], 0.08, c[2]], s: [0.98, 1, 0.98], r: 0, c: T.rgb('#2FA35B'), tex: r.white, uvs: [1, 1], alpha: 0.4 + Math.sin(t / 160) * 0.25, flat: 1 });
-      overlay.push({ mesh: M.cone, p: [c[0], 0.9 + Math.sin(t / 200) * 0.08, c[2]], s: [0.2, -0.26, 0.2], r: 0, c: T.rgb('#2FA35B'), tex: r.white, uvs: [1, 1], flat: 0.5 });
     }
     // 分かれ道：コマの頭上に、進める方向の矢印（自分が選ぶときは緑、ほかの人のときは灰色）
     if (s.pending?.kind === 'direction' && s.phase === 'decide') {
@@ -387,6 +408,7 @@ export function createBoard3D(initial: Detail): Board3D | null {
       const c = squareCenter(s, v.selected);
       overlay.push({ mesh: M.plane, p: [c[0], 0.075, c[2]], s: [1, 1, 1], r: 0, c: T.rgb('#F2C230'), tex: r.white, uvs: [1, 1], alpha: 0.45 + Math.sin(t / 200) * 0.2, flat: 1 });
     }
+    overlay.push(...labels);
     return { items: out, overlay };
   }
 
@@ -508,6 +530,13 @@ export function createBoard3D(initial: Detail): Board3D | null {
     const aspect = rect.height / rect.width;
     let best: number | null = null;
     let bestD = 0.06;
+    // 分かれ道の札を押しても選べる（札は大きいので判定を広めに）
+    for (const c of choiceSpots) {
+      const p = project(vp, c.p);
+      if (!p) continue;
+      const d = Math.hypot(p[0] - mx, (p[1] - my) * aspect) * 0.6;
+      if (d < bestD) { bestD = d; best = c.sq; }
+    }
     for (const sq of getMap(state.mapId).squares) {
       const c = squareCenter(state, sq.id);
       for (const y of [0.1, 0.4]) {
@@ -575,6 +604,41 @@ export function createBoard3D(initial: Detail): Board3D | null {
   }
 
   return api;
+}
+
+// 分かれ道の札の文字：1 行目はマスの名前、2 行目はそのマスの状態
+function choiceText(s: GameState, sq: number): [string, string] {
+  const map = getMap(s.mapId);
+  const q = map.squares[sq];
+  const pr = s.props[sq];
+  const owner = pr?.owner != null ? s.players[pr.owner] : null;
+  switch (q.kind) {
+    case 'shop':
+      if (!owner) return [q.name, `空き店舗 ${pr!.value.toLocaleString()}G`];
+      if (owner.id === s.turn) return [q.name, '自分のお店（増資できる）'];
+      return [q.name, `${owner.name}のお店・利用料 ${fee(s, sq).toLocaleString()}G`];
+    case 'bank': return ['銀行', 'スタンプがそろえば給料・株を買える'];
+    case 'stamp': return [q.name, s.players[s.turn].stamps[q.stamp!] ? 'もう持っている' : 'まだ持っていないスタンプ'];
+    case 'chance': return ['チャンス', 'カードを引く'];
+    case 'plaza': return ['広場', '止まると自分のお店がお休み'];
+    case 'lot':
+      if (s.mode === 'easy') return ['チャンス', 'カードを引く'];
+      if (!owner) return ['空き地', `施設を建てられる ${pr!.value.toLocaleString()}G`];
+      return [pr!.facility === 'yatai' ? '屋台村' : '両替所', owner.id === s.turn ? '自分の施設' : `${owner.name}の施設・利用料 ${fee(s, sq).toLocaleString()}G`];
+  }
+}
+
+// 札を浮かべる高さ：家の屋根と利用料のピンより上
+function labelHeight(s: GameState, sq: number): number {
+  const map = getMap(s.mapId);
+  const q = map.squares[sq];
+  if (q.kind === 'bank') return 2.6;
+  if (q.kind === 'shop') {
+    const pr = s.props[sq]!;
+    const floors = Math.max(1, Math.min(4, 1 + Math.round((pr.value / q.base! - 1) * 1.5)));
+    return 0.095 + 0.27 * floors + 0.12 + 0.3 + (pr.owner != null ? 0.8 : 0.35);
+  }
+  return 1.2;
 }
 
 // 盤の配置：マスの位置、空いている所、噴水、サイコロを投げる道すじ、建物の向き

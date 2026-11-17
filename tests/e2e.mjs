@@ -151,6 +151,17 @@ await step('3D：切り替えると立体の盤面が出て、サイコロを振
   await page.waitForTimeout(800);
   const tris = Number(await page.locator('.board3d').getAttribute('data-triangles'));
   assert(tris > 1000, `三角形が少なすぎる（${tris}）`);
+  // スタートの銀行は分かれ道：選べるマスの数だけ、家の上に名前の札が出る
+  const st0 = await newPage({ width: 1280, height: 900 }, { ...base, mapId: 'corner', view: '3d' });
+  await st0.page.getByRole('button', { name: 'はじめる' }).click();
+  await st0.page.getByRole('button', { name: 'サイコロを振る' }).click();
+  await st0.page.waitForSelector('.actions .dirs button', { timeout: 15000 });
+  await st0.page.waitForTimeout(300);
+  const dirs = await st0.page.locator('.actions .dirs button').count();
+  const labels = Number(await st0.page.locator('.board3d').getAttribute('data-choices'));
+  assert(dirs === 2 && labels === dirs, `分かれ道の札の数が合わない（札 ${labels}・選択肢 ${dirs}）`);
+  assert(st0.errors.length === 0, `エラー：${st0.errors.join(' / ')}`);
+  await st0.page.close();
   await playMyTurn(page);
   // 1 周すれば、だれかがお店を買っていて、頭上にピンが立つ
   const pins3d = Number(await page.locator('.board3d').getAttribute('data-pins'));

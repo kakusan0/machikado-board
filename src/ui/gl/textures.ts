@@ -302,3 +302,18 @@ export function pinLabel(text: string, color: string, crown = false): Canvas {
   g.fillText(text, cx, 136);
   return c;
 }
+
+// 分かれ道で選べるマスの名前の札（2 行）。1024×256（ミップマップのため 2 のべき乗）
+export function choiceLabel(name: string, sub: string, color: string): Canvas {
+  const [c, g] = canvas(1024, 256);
+  g.fillStyle = '#FFFFFF'; g.beginPath(); g.roundRect(4, 4, 1016, 248, 60); g.fill();
+  g.fillStyle = color; g.beginPath(); g.roundRect(16, 16, 992, 224, 50); g.fill();
+  g.fillStyle = '#FFFFFF'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  fitText(g, name, 940, 110);
+  g.lineWidth = 8; g.strokeStyle = 'rgba(0,0,0,.25)'; g.strokeText(name, 512, 92); g.fillText(name, 512, 92);
+  g.font = `700 64px ${FONT}`;
+  let size = 64;
+  while (g.measureText(sub).width > 940 && size > 28) { size -= 4; g.font = `700 ${size}px ${FONT}`; }
+  g.fillStyle = 'rgba(255,255,255,.95)'; g.fillText(sub, 512, 188);
+  return c;
+}
