@@ -2,7 +2,7 @@
 import { CARDS } from '../game/cards';
 import { getMap } from '../game/maps';
 import type { GameMap } from '../game/state';
-import { fee, netWorth } from '../game/rules';
+import { fee, isMonopoly, netWorth } from '../game/rules';
 import type { GameState } from '../game/state';
 import type { BoardView } from './board2d';
 import { g as gold, h } from './dom';
@@ -192,10 +192,11 @@ export function createBoard3D(initial: Detail): Board3D | null {
         const text = closed ? '休業' : `${fee(s, sq.id).toLocaleString()}G`;
         const color = closed ? '#8890A8' : owner.color;
         const phase = sq.id * 0.9;
+        const crown = s.mode === 'normal' && sq.kind === 'shop' && isMonopoly(s, sq.street!, owner.id);
         add(M.cyl, [x, y, z], [0.018, 0.2, 0.018], { c: C('#EEF0F4'), pinBob: phase });
         add(M.cone, [x, y + 0.34, z], [0.18, -0.14, 0.18], { c: C(color), pinBob: phase });
         add(M.cube, [x, y + 0.33, z], [0.6, 0.3, 0.012], {
-          tex: r.tex(`sign:pin:${color}:${text}`, () => T.pinLabel(text, color), false), pinBob: phase, billboard: true, flat: 0.35,
+          tex: r.tex(`sign:pin:${color}:${text}:${crown ? 'c' : ''}`, () => T.pinLabel(text, color, crown), false), pinBob: phase, billboard: true, flat: 0.35,
         });
         pins++;
       };
@@ -369,6 +370,16 @@ export function createBoard3D(initial: Detail): Board3D | null {
         const hx = cx + dir[0] * 0.34, hz = cz + dir[2] * 0.34;
         overlay.push({ mesh: M.cone, p: [hx, hgt - 0.19, hz], s: [0.38, 0.38, 0.38], r: 0,
           m3: axisAngle(norm3([dir[2], 0, -dir[0]]), Math.PI / 2), c: color, tex: r.white, uvs: [1, 1], flat: 0.3, onTop: true });
+      }
+    }
+    // この番に独占した通り：マスの床に金色の光る枠
+    if (s.monopoly) {
+      const map = getMap(s.mapId);
+      const glow = 0.35 + Math.sin(t / 220) * 0.2;
+      for (const q of map.squares) {
+        if (q.kind !== 'shop' || q.street !== s.monopoly.street) continue;
+        const c = squareCenter(s, q.id);
+        overlay.push({ mesh: M.plane, p: [c[0], 0.075, c[2]], s: [1.04, 1, 1.04], r: 0, c: T.rgb('#F2C230'), tex: r.white, uvs: [1, 1], alpha: glow, flat: 1 });
       }
     }
     // 選んだマス
@@ -556,6 +567,7 @@ export function createBoard3D(initial: Detail): Board3D | null {
       h('div', { class: 'hud-row' }, h('b', {}, map.name), h('span', {}, `目標 ${gold(map.target)}・${s.round} 周目`),
         h('span', {}, `トップ：${leader.name} ${gold(netWorth(s, leader.id))}`)),
       h('div', { class: 'hud-tip' }, 'ドラッグで回転・ピンチやホイールで拡大・マスをタップで詳しく'),
+      s.monopoly ? h('div', { class: 'hud-card mono', role: 'status' }, h('b', {}, `♛ ${s.players[s.monopoly.player].name}が${map.streets[s.monopoly.street].name}を独占！`), ' 利用料 +10%・増資の上限 3 倍・買収されない') : null,
       s.salary ? h('div', { class: 'hud-card salary', role: 'status' }, h('b', {}, `${s.players[s.salary.player].name}が昇格！`), ` 段階 ${s.salary.level}・給料 ${gold(s.salary.amount)}`) : null,
       card ? h('div', { class: 'hud-card' }, h('b', {}, card.title), ' ', card.text) : null,
       v.message ? h('div', { class: 'hud-card' }, v.message) : null,

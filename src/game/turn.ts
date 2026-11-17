@@ -4,7 +4,7 @@ import { bankOf, distances, forwardOptions, getMap } from './maps';
 import { step } from './rng';
 import {
   BUYOUT_MULT, BUYOUT_OWNER_SHARE, DEMAND_DECAY, DEMAND_MAX, DEMAND_MIN, LIQUIDATE_RATE, MAX_SHARES, STOCK_LOT,
-  TOP_HOLDER_RATE, buyCost, canBuyout, dividendFor, fee, investCap, netWorth, salary, sellQuote, topHolder,
+  TOP_HOLDER_RATE, buyCost, canBuyout, isMonopoly, dividendFor, fee, investCap, netWorth, salary, sellQuote, topHolder,
 } from './rules';
 import type { Action, CpuLevel, GameState, Mode, Player } from './state';
 import { FACILITY_NAMES, STAMP_NAMES } from './state';
@@ -46,6 +46,7 @@ export function newGame(o: NewGameOptions): GameState {
     deck: [],
     lastCard: null,
     salary: null,
+    monopoly: null,
     log: [],
     winner: null,
     overReason: null,
@@ -97,6 +98,7 @@ export function apply(prev: GameState, a: Action): GameState {
       p.cash -= pr.value;
       pr.owner = p.id;
       log(s, p.id, `${sqName(s, sq)}を ${pr.value}G で買った`);
+      checkMonopoly(s, sq);
       toStock(s);
       break;
     }
@@ -126,6 +128,7 @@ export function apply(prev: GameState, a: Action): GameState {
       owner.cash += Math.round(price * BUYOUT_OWNER_SHARE);
       log(s, p.id, `${owner.name}の${sqName(s, sq)}を ${price}G で買収`);
       pr.owner = p.id;
+      checkMonopoly(s, sq);
       toStock(s);
       break;
     }
@@ -231,6 +234,16 @@ function bankPause(s: GameState): boolean {
   s.phase = 'decide';
   s.pending = { kind: 'bankStock', sq: p.pos };
   return true;
+}
+
+// お店を手に入れて通りを独占したら、画面に知らせる（ボーナスの中身は rules.ts の利用料・増資の上限・買収）
+function checkMonopoly(s: GameState, sq: number) {
+  const map = getMap(s.mapId);
+  const st = map.squares[sq].street;
+  const p = cur(s);
+  if (s.mode !== 'normal' || st == null || !isMonopoly(s, st, p.id)) return;
+  s.monopoly = { player: p.id, street: st };
+  log(s, p.id, `${map.streets[st].name}を独占！（利用料 +10%・増資の上限 3 倍・買収されない）`);
 }
 
 function stepTo(s: GameState, to: number) {
@@ -439,6 +452,7 @@ function nextTurn(s: GameState) {
   s.moving = null;
   s.lastCard = null;
   s.salary = null;
+  s.monopoly = null;
 }
 
 // カードで移動したときは移動先の解決まで済ませて true を返す

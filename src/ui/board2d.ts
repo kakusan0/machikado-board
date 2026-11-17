@@ -1,6 +1,6 @@
 // 2D の盤面（CSS グリッド）
 import { arrow, getMap } from '../game/maps';
-import { fee, netWorth } from '../game/rules';
+import { fee, isMonopoly, netWorth } from '../game/rules';
 import type { GameState } from '../game/state';
 import { FACILITY_NAMES, STAMP_NAMES } from '../game/state';
 import { CARDS } from '../game/cards';
@@ -49,8 +49,11 @@ export function renderBoard(s: GameState, v: BoardView): HTMLElement {
       icon = pr?.facility === 'yatai' ? '🏮' : pr?.facility === 'ryogae' ? '💱' : '🌱';
       sub = pr?.facility ? FACILITY_NAMES[pr.facility] : s.mode === 'easy' ? 'チャンス' : '空き地';
     }
+    // 独占中の通り（ふつうモード）：王冠と金色の帯
+    const mono = s.mode === 'normal' && owner && sq.kind === 'shop' && isMonopoly(s, sq.street!, owner.id);
+    const fresh = mono && s.monopoly?.street === sq.street; // この番に独占したばかり
     const cell = h('button', {
-      class: `sq k-${sq.kind}${owner ? ' owned' : ''}${v.selected === sq.id ? ' sel' : ''}${choices.has(sq.id) ? ' choice' : ''}`,
+      class: `sq k-${sq.kind}${owner ? ' owned' : ''}${mono ? ' mono' : ''}${fresh ? ' fresh' : ''}${v.selected === sq.id ? ' sel' : ''}${choices.has(sq.id) ? ' choice' : ''}`,
       style: {
         gridColumn: String(x + 1), gridRow: String(y + 1),
         '--street': street?.color ?? 'transparent', '--owner': owner?.color ?? 'transparent',
@@ -67,8 +70,8 @@ export function renderBoard(s: GameState, v: BoardView): HTMLElement {
     // 頭上のピン：持ち主の色の札に利用料（休み中は「休業」）
     owner ? h('span', {
       class: `pin${owner.closed ? ' off' : ''}`, style: { '--pc': owner.closed ? '#8890A8' : owner.color },
-      title: `${owner.name}のお店・利用料 ${fee(s, sq.id)}G`,
-    }, owner.closed ? '休業' : `${fee(s, sq.id).toLocaleString()}G`) : null,
+      title: `${owner.name}のお店・利用料 ${fee(s, sq.id)}G${mono ? '・通りを独占中' : ''}`,
+    }, mono ? h('span', { class: 'crown', 'aria-label': '独占' }, '♛') : null, owner.closed ? '休業' : `${fee(s, sq.id).toLocaleString()}G`) : null,
     choices.has(sq.id) && s.pending?.kind === 'direction' ? h('span', { class: 'arrow' }, arrow(map, s.pending.sq, sq.id)) : null,
     );
     board.append(cell);
@@ -99,6 +102,7 @@ export function renderBoard(s: GameState, v: BoardView): HTMLElement {
       h('span', {}, `目標 ${g(map.target)}・${s.round} 周目`),
       h('span', {}, `トップ：${leader.name} ${g(netWorth(s, leader.id))}`),
       s.dice ? h('span', { class: 'dice', 'aria-label': `サイコロ ${s.dice}` }, '⚀⚁⚂⚃⚄⚅'[s.dice - 1]) : null),
+    s.monopoly ? h('div', { class: 'card mono', role: 'status' }, h('b', {}, `♛ ${s.players[s.monopoly.player].name}が${map.streets[s.monopoly.street].name}を独占！`), ' 利用料 +10%・増資の上限 3 倍・買収されない') : null,
     s.salary ? h('div', { class: 'card salary', role: 'status' }, h('b', {}, `${s.players[s.salary.player].name}が昇格！`), ` 段階 ${s.salary.level}・給料 ${g(s.salary.amount)}`) : null,
     card ? h('div', { class: 'card' }, h('b', {}, card.title), ' ', card.text) : null,
     v.message ? h('div', { class: 'msg' }, v.message) : null,

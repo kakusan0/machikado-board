@@ -371,3 +371,35 @@ describe('銀行を通過したときの給料', () => {
     expect(t.salary).toBeNull();
   });
 });
+
+describe('通りの独占の知らせ', () => {
+  it('最後の 1 軒を買って独占すると、知らせとできごとが入り、次の番で消える', () => {
+    const s = game();
+    const [a, b, c] = shopsOf(s, 0); // 3 軒の通り
+    own(s, a, 0); own(s, b, 0);
+    s.phase = 'decide';
+    s.pending = { kind: 'buyShop', sq: c };
+    const t = apply(s, { type: 'buyShop' });
+    expect(t.monopoly).toEqual({ player: 0, street: 0 });
+    expect(t.log.at(-1)!.text).toMatch(/あさひ通りを独占！/);
+    const u = apply(t, { type: 'endTurn' });
+    expect(u.monopoly).toBeNull();
+  });
+  it('買収で独占したときも知らせる', () => {
+    const s = game();
+    const [a, b, c] = shopsOf(s, 0);
+    own(s, a, 0); own(s, b, 0); own(s, c, 1);
+    s.players[0].cash = 99999;
+    s.phase = 'decide';
+    s.pending = { kind: 'buyout', sq: c };
+    expect(apply(s, { type: 'buyout' }).monopoly).toEqual({ player: 0, street: 0 });
+  });
+  it('独占していなければ知らせない', () => {
+    const s = game();
+    const [a, , c] = shopsOf(s, 0);
+    own(s, a, 0);
+    s.phase = 'decide';
+    s.pending = { kind: 'buyShop', sq: c };
+    expect(apply(s, { type: 'buyShop' }).monopoly).toBeNull();
+  });
+});

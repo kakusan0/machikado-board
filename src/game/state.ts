@@ -88,7 +88,8 @@ export interface GameState {
   path: number[]; // 直前の移動経路（画面の演出用）
   deck: number[]; // チャンスカードの山（カード番号）
   lastCard: number | null;
-  salary: { player: number; amount: number; level: number } | null; // この番にもらった給料（画面の表示用）
+  salary: { player: number; amount: number; level: number } | null;
+  monopoly: { player: number; street: number } | null; // この番に通りを独占した人と通り（画面の表示用） // この番にもらった給料（画面の表示用）
   log: LogEntry[];
   winner: number | null;
   overReason: 'target' | 'bankrupt' | 'rounds' | null;

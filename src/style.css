@@ -199,3 +199,12 @@ legend { font-weight: 900; margin-bottom: 6px; }
 @media (max-width: 600px) { .sq .pin { font-size: 9px; padding: 2px 4px; } .sq.owned { padding-top: 14px; } }
 .grid-10 .sq .pin { font-size: 9px; padding: 2px 4px; }
 .board-info .card.salary, .board3d .hud-card.salary { border-color: #2FA35B; background: #E6F6EA; color: #1B2340; animation: pop .25s ease-out; }
+
+/* 通りの独占 */
+.sq.mono .strip { height: 9px; background: linear-gradient(90deg, var(--street), #F2C230, var(--street)); }
+.sq.mono { box-shadow: inset 0 0 0 2px var(--owner), 0 0 0 2px #F2C230; }
+.sq.mono.fresh { animation: monoglow 1s ease-in-out infinite alternate; }
+@keyframes monoglow { from { box-shadow: inset 0 0 0 2px var(--owner), 0 0 0 2px #F2C230; } to { box-shadow: inset 0 0 0 2px var(--owner), 0 0 0 5px #F2C230, 0 0 14px #F2C230; } }
+@media (prefers-reduced-motion: reduce) { .sq.mono.fresh { animation: none; } }
+.sq .pin .crown { color: #FFE27A; margin-right: 2px; text-shadow: 0 0 2px rgba(0,0,0,.4); }
+.board-info .card.mono, .board3d .hud-card.mono { border-color: #E0A21B; background: #FFF3C4; color: #1B2340; animation: pop .25s ease-out; }

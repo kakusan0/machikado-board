@@ -278,14 +278,27 @@ export function lantern(): Canvas {
 }
 
 // 頭上のピンの札（利用料）。512×256（ミップマップのため 2 のべき乗）
-export function pinLabel(text: string, color: string): Canvas {
+export function pinLabel(text: string, color: string, crown = false): Canvas {
   const [c, g] = canvas(512, 256);
-  g.fillStyle = '#FFFFFF'; g.beginPath(); g.roundRect(4, 4, 504, 248, 64); g.fill();
+  g.fillStyle = crown ? '#F2C230' : '#FFFFFF'; g.beginPath(); g.roundRect(4, 4, 504, 248, 64); g.fill();
   g.fillStyle = color; g.beginPath(); g.roundRect(18, 18, 476, 220, 52); g.fill();
   g.fillStyle = 'rgba(255,255,255,.18)'; g.beginPath(); g.roundRect(30, 26, 452, 90, 40); g.fill();
+  let cx = 256;
+  if (crown) {
+    // 独占中：左に金色の王冠（図形で描く）
+    const x0 = 46, y0 = 78, w = 112, hh = 100;
+    g.fillStyle = '#FFD84A'; g.strokeStyle = '#8A5A00'; g.lineWidth = 6; g.lineJoin = 'round';
+    g.beginPath();
+    g.moveTo(x0, y0 + hh); g.lineTo(x0, y0 + 20); g.lineTo(x0 + w * 0.25, y0 + 52); g.lineTo(x0 + w * 0.5, y0);
+    g.lineTo(x0 + w * 0.75, y0 + 52); g.lineTo(x0 + w, y0 + 20); g.lineTo(x0 + w, y0 + hh); g.closePath();
+    g.fill(); g.stroke();
+    g.fillStyle = '#E2463B';
+    for (const [px, py] of [[x0, y0 + 16], [x0 + w * 0.5, y0 - 4], [x0 + w, y0 + 16]]) { g.beginPath(); g.arc(px, py, 10, 0, Math.PI * 2); g.fill(); }
+    cx = 318;
+  }
   g.fillStyle = '#FFFFFF'; g.textAlign = 'center'; g.textBaseline = 'middle';
-  fitText(g, text, 430, 150);
-  g.lineWidth = 10; g.strokeStyle = 'rgba(0,0,0,.25)'; g.strokeText(text, 256, 136);
-  g.fillText(text, 256, 136);
+  fitText(g, text, crown ? 300 : 430, 150);
+  g.lineWidth = 10; g.strokeStyle = 'rgba(0,0,0,.25)'; g.strokeText(text, cx, 136);
+  g.fillText(text, cx, 136);
   return c;
 }
