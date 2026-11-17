@@ -102,18 +102,22 @@ for (const [label, viewport] of [['PC', { width: 1280, height: 900 }], ['スマ�
   });
 }
 
-await step('株式市場タブ：株を買える場面で自動で開き、行を押すと 2D の通りが点滅し、ターンを終えると盤面に戻る', async () => {
+await step('株式市場タブ：銀行で自動で開き、行を押すと 2D の通りが点滅し、終えると盤面に戻る。銀行以外では開かない', async () => {
   const { page, errors } = await newPage({ width: 1280, height: 900 }, { ...base, mapId: 'corner', view: '3d' });
   await page.getByRole('button', { name: 'はじめる' }).click();
+  // 銀行のひとつ手前（パン工房）に、銀行へ向かう向きで立たせて、つづきから
+  await page.evaluate(() => {
+    const k = 'machikado-board/save-v1';
+    const s = JSON.parse(localStorage.getItem(k));
+    s.players[0].pos = 1; s.players[0].prev = 2;
+    localStorage.setItem(k, JSON.stringify(s));
+  });
+  await page.reload();
+  await page.getByRole('button', { name: /つづきから/ }).click();
   await page.getByRole('button', { name: 'サイコロを振る' }).click();
-  for (let k = 0; k < 20; k++) {
-    await page.waitForTimeout(400);
-    const dirs = page.locator('.actions .dirs button');
-    if (await dirs.count()) { await dirs.first().click(); continue; }
-    const skip = page.locator('.actions button', { hasText: /見送る|増資しない/ });
-    if (await skip.count()) { await skip.first().click(); continue; }
-    if (await page.locator('.actions button', { hasText: 'ターンを終える' }).count()) break;
-  }
+  // 銀行を通る（止まって株式市場）か、銀行に止まる（ターンの終わりに株式市場）
+  await page.waitForSelector('.layout.market', { timeout: 15000 });
+  assert(await page.locator('.actions button', { hasText: /株の売り買いを終えて進む|ターンを終える/ }).count() === 1, '銀行での操作がない');
   assert(await page.locator('.layout.market').count() === 1, '株式市場タブが開かない');
   assert(await page.locator('.tab.on', { hasText: '株式市場' }).count() === 1, 'タブが選ばれていない');
   await page.locator('.stocks.wide tbody tr').nth(0).click();
@@ -132,7 +136,21 @@ await step('株式市場タブ：株を買える場面で自動で開き、行�
   assert(await page.locator('.sq.blink').count() === 3, 'マップで押した通りが点滅しない');
   await page.getByRole('button', { name: '選択を外す' }).click();
   assert(await page.locator('.street-info').count() === 0, '選択を外しても通りの情報が消えない');
-  await page.locator('.actions button', { hasText: 'ターンを終える' }).click();
+  // 売り買いを終えて進む（銀行を通ったとき）。そのあと銀行以外で止まったら、株式市場は開かない
+  for (let k = 0; k < 20; k++) {
+    const go = page.locator('.actions button', { hasText: /株の売り買いを終えて進む|見送る|増資しない/ });
+    if (await go.count()) { await go.first().click(); await page.waitForTimeout(500); continue; }
+    const dirs = page.locator('.actions .dirs button');
+    if (await dirs.count()) { await dirs.first().click(); await page.waitForTimeout(500); continue; }
+    const end = page.locator('.actions button', { hasText: 'ターンを終える' });
+    if (await end.count()) {
+      const atBank = (await page.locator('.actions').textContent()).includes('銀行にいるので');
+      if (!atBank) assert(await page.locator('.layout.market').count() === 0, '銀行以外なのに株式市場タブが開いた');
+      await end.click();
+      break;
+    }
+    await page.waitForTimeout(400);
+  }
   await page.waitForSelector('.actions button:has-text("サイコロを振る")', { timeout: 90_000 });
   assert(await page.locator('.board3d').count() === 1, '盤面（3D）に戻らない');
   assert(errors.length === 0, `エラー：${errors.join(' / ')}`);

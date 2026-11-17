@@ -4,7 +4,7 @@ import { bankOf, distances, forwardOptions, getMap } from './maps';
 import { step } from './rng';
 import {
   BUYOUT_MULT, BUYOUT_OWNER_SHARE, DEMAND_DECAY, DEMAND_MAX, DEMAND_MIN, LIQUIDATE_RATE, MAX_SHARES, STOCK_LOT,
-  TOP_HOLDER_RATE, buyCost, canBuyout, isMonopoly, dividendFor, fee, investCap, netWorth, salary, sellQuote, topHolder,
+  TOP_HOLDER_RATE, buyQuote, canBuyout, isMonopoly, dividendFor, fee, investCap, netWorth, salary, sellQuote, topHolder,
 } from './rules';
 import type { Action, CpuLevel, GameState, Mode, Player } from './state';
 import { FACILITY_NAMES, STAMP_NAMES } from './state';
@@ -159,16 +159,16 @@ export function apply(prev: GameState, a: Action): GameState {
       break;
     }
     case 'buyStock': {
-      // 株はターンの終わりにいつでも買える。銀行・両替所に寄っていない番は手数料 10%
-      need((s.phase === 'stock' || (s.phase === 'decide' && s.pending?.kind === 'bankStock')) && s.mode === 'normal', a);
+      // 株を買えるのは銀行（止まった番・通って止まっているとき）と両替所に止まった番だけ
+      need(canBuyStock(s), a);
       need(Number.isInteger(a.lots) && a.lots > 0 && a.street >= 0 && a.street < s.demand.length, a);
       need(p.shares[a.street] + a.lots * STOCK_LOT <= MAX_SHARES, a);
-      const q = buyCost(s, a.street, a.lots);
+      const q = buyQuote(s, a.street, a.lots);
       need(p.cash >= q.cost, a);
       p.cash -= q.cost;
       p.shares[a.street] += a.lots * STOCK_LOT;
       s.demand[a.street] = q.demand;
-      log(s, p.id, `${streetName(s, a.street)}の株を ${a.lots * STOCK_LOT} 株買った（${q.cost}G${q.fee ? `・手数料 ${q.fee}G を含む` : ''}）`);
+      log(s, p.id, `${streetName(s, a.street)}の株を ${a.lots * STOCK_LOT} 株買った（${q.cost}G）`);
       break;
     }
     case 'sellStock': {
@@ -225,12 +225,12 @@ function continueMove(s: GameState) {
   if (m.depth >= 0) land(s, p.pos, m.depth);
 }
 
-// 銀行を通って給料をもらったら、そこで止まって株を売り買いできる（ふつうモード。止まったときは最後に買える）
+// 銀行を通ったら、そこで止まって株を売り買いできる（ふつうモード。給料がなくても止まる。止まったときはターンの終わりに買える）
 function bankPause(s: GameState): boolean {
   const map = getMap(s.mapId);
   const p = cur(s);
   if (s.mode !== 'normal' || !s.moving || s.moving.left <= 0) return false;
-  if (map.squares[p.pos].kind !== 'bank' || s.salary?.player !== p.id) return false;
+  if (map.squares[p.pos].kind !== 'bank') return false;
   s.phase = 'decide';
   s.pending = { kind: 'bankStock', sq: p.pos };
   return true;
@@ -542,8 +542,13 @@ export function investOptions(s: GameState): { sq: number; room: number }[] {
     .filter((x) => x.room > 0);
 }
 
-export const canBuyStock = (s: GameState) =>
-  s.mode === 'normal' && (s.phase === 'stock' || (s.phase === 'decide' && s.pending?.kind === 'bankStock'));
+// 株を買えるとき：銀行を通って止まっているとき、銀行に止まった番、両替所に止まった番の終わり
+export const canBuyStock = (s: GameState) => {
+  if (s.mode !== 'normal') return false;
+  if (s.phase === 'decide' && s.pending?.kind === 'bankStock') return true;
+  if (s.phase !== 'stock') return false;
+  return getMap(s.mapId).squares[s.players[s.turn].pos].kind === 'bank' || s.exchangeTouched;
+};
 export const canSellStock = (s: GameState) =>
   s.mode === 'normal' && (s.phase === 'stock' || s.phase === 'roll' || (s.phase === 'decide' && s.pending?.kind === 'bankStock'));
 

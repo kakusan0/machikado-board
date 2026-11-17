@@ -116,20 +116,30 @@ describe('株', () => {
     const after = apply(s, { type: 'roll' });
     expect(after.players[2].cash - before).toBe(50 + Math.round(f * 0.1));
   });
-  it('ターンの終わりならいつでも買える。銀行・両替所に寄っていない番は手数料 10%', () => {
+  it('株を買えるのは銀行に止まった番と両替所に止まった番だけ（ほかのマスでは買えない）', () => {
+    const m = getMap('corner');
     const s = game();
     s.phase = 'stock';
+    s.players[0].pos = m.squares.find((q) => q.kind === 'shop')!.id; // お店のマスで止まった番
+    expect(() => apply(s, { type: 'buyStock', street: 0, lots: 1 })).toThrow();
+    s.bankTouched = true; // 銀行を通っただけ（いまは銀行にいない）でも、ターンの終わりには買えない
+    expect(() => apply(s, { type: 'buyStock', street: 0, lots: 1 })).toThrow();
+    s.players[0].pos = 0; // 銀行に止まった番
     const raw = buyQuote(s, 0, 1).cost;
     const t = apply(s, { type: 'buyStock', street: 0, lots: 1 });
     expect(t.players[0].shares[0]).toBe(10);
+    expect(s.players[0].cash - t.players[0].cash).toBe(raw); // 手数料はない
     expect(t.demand[0]).toBeCloseTo(1.02);
-    expect(s.players[0].cash - t.players[0].cash).toBe(raw + Math.ceil(raw * 0.1));
-    s.bankTouched = true;
-    const u = apply(s, { type: 'buyStock', street: 0, lots: 1 });
-    expect(s.players[0].cash - u.players[0].cash).toBe(raw); // 銀行に寄った番は手数料なし
-    s.bankTouched = false;
-    s.exchangeTouched = true;
-    expect(s.players[0].cash - apply(s, { type: 'buyStock', street: 0, lots: 1 }).players[0].cash).toBe(raw);
+    s.players[0].pos = m.squares.find((q) => q.kind === 'lot')!.id;
+    s.exchangeTouched = true; // 両替所に止まった番
+    expect(apply(s, { type: 'buyStock', street: 0, lots: 1 }).players[0].shares[0]).toBe(10);
+  });
+  it('売るのは、銀行以外でもできる', () => {
+    const s = game();
+    s.phase = 'stock';
+    s.players[0].pos = 1;
+    s.players[0].shares[0] = 20;
+    expect(apply(s, { type: 'sellStock', street: 0, lots: 1 }).players[0].shares[0]).toBe(10);
   });
   it('サイコロを振る前（ターンの途中）は買えない', () => {
     const s = game();
@@ -369,6 +379,12 @@ describe('銀行を通過したときの給料', () => {
     expect(t.path).toContain(0);
     expect(t.players[0].level).toBe(0);
     expect(t.salary).toBeNull();
+    // 給料がなくても、銀行を通れば止まって株を買える
+    expect(t.pending).toEqual({ kind: 'bankStock', sq: 0 });
+    const u = apply(t, { type: 'buyStock', street: 2, lots: 1 });
+    expect(u.players[0].shares[2]).toBe(10);
+    const v = apply(u, { type: 'skip' });
+    expect(v.players[0].pos).not.toBe(0);
   });
 });
 

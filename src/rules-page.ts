@@ -4,7 +4,7 @@ import { CARDS } from './game/cards';
 import { MAPS } from './game/maps';
 import {
   BUYOUT_MULT, BUYOUT_OWNER_SHARE, DEMAND_DECAY, DEMAND_MAX, DEMAND_MIN, EASY_FEE_RATE, FEE_RATES, LIQUIDATE_RATE,
-  MAX_SHARES, MONOPOLY_BONUS, STOCK_COMMISSION, STOCK_LOT, TOP_HOLDER_MIN, TOP_HOLDER_RATE, salary,
+  MAX_SHARES, MONOPOLY_BONUS, STOCK_LOT, TOP_HOLDER_MIN, TOP_HOLDER_RATE, salary,
 } from './game/rules';
 import { h } from './ui/dom';
 
@@ -42,8 +42,8 @@ document.getElementById('rules')!.replaceWith(h('main', { class: 'rules' },
   sec('株（ふつうモード）',
     ul([
       '株価 ＝（10 ＋ 通りの価値 ÷ 40）× 需給',
-      `ターンの終わりに、いつでも ${STOCK_LOT} 株単位で買えます。銀行か両替所に寄った番は手数料なし、それ以外の番は手数料 ${pct(STOCK_COMMISSION)} がかかります。1 つの通りで持てるのは 1 人 ${MAX_SHARES} 株までです`,
-      '銀行を通って給料をもらったときは、銀行で止まり、手数料なしで株を売り買いできます。終わったら残りの歩数を進みます',
+      `株を買えるのは銀行だけです（${STOCK_LOT} 株単位）。銀行に止まった番はターンの終わりに、銀行を通ったときはその場で止まって買えます。両替所に止まった番も買えます。1 つの通りで持てるのは 1 人 ${MAX_SHARES} 株までです`,
+      '銀行を通るときは、給料の有無にかかわらず銀行で止まり、株を売り買いできます。終わったら残りの歩数を進みます',
       '売るのは、自分の番ならいつでもできます',
       `${STOCK_LOT} 株買うごとに株価が 2% 上がり、売るごとに下がります。需給の範囲は ${DEMAND_MIN}〜${DEMAND_MAX} 倍で、毎周 ${pct(DEMAND_DECAY)} ずつ 1 倍に戻ります`,
       'その通りで利用料が払われるたびに、株主には 2 株につき 1G の配当が入ります',
@@ -54,7 +54,7 @@ document.getElementById('rules')!.replaceWith(h('main', { class: 'rules' },
     p(`ほかの人のお店に止まって利用料を払ったあと、価値の ${BUYOUT_MULT} 倍で買い取れます。代金の ${pct(BUYOUT_OWNER_SHARE)} は持ち主に、残りは銀行に入ります。独占されている通りのお店は買い取れません。`)),
 
   sec('空き地（ふつうモード）',
-    ul(['屋台村：利用料は 40G ＋ 持ち主のお店 1 軒につき 15G', '両替所：止まった人は、その番に株を手数料なしで買えます（両替所の利用料は 30G）'])),
+    ul(['屋台村：利用料は 40G ＋ 持ち主のお店 1 軒につき 15G', '両替所：止まった人は、その番に株を買えます（小さな銀行。両替所の利用料は 30G）'])),
 
   sec('広場',
     p('広場に止まると、次の自分の番まで自分のお店がお休みになり、利用料が入りません。')),
