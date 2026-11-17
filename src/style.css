@@ -208,3 +208,30 @@ legend { font-weight: 900; margin-bottom: 6px; }
 @media (prefers-reduced-motion: reduce) { .sq.mono.fresh { animation: none; } }
 .sq .pin .crown { color: #FFE27A; margin-right: 2px; text-shadow: 0 0 2px rgba(0,0,0,.4); }
 .board-info .card.mono, .board3d .hud-card.mono { border-color: #E0A21B; background: #FFF3C4; color: #1B2340; animation: pop .25s ease-out; }
+
+/* 盤面／株式市場のタブ */
+.tabs { display: flex; gap: 6px; max-width: 1280px; margin: 12px auto 0; padding: 0 16px; }
+.tab { border: 1.5px solid var(--line); background: var(--panel); border-radius: 12px 12px 0 0; padding: 8px 18px; font-weight: 900; cursor: pointer; min-height: 44px; }
+.tab.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.tab .badge { margin-left: 6px; font-size: 11px; background: #E2463B; color: #fff; border-radius: 99px; padding: 2px 7px; }
+.layout.market { grid-template-columns: minmax(0, 1fr) minmax(0, 620px); align-items: start; }
+.layout.market .board-wrap { position: sticky; top: 8px; }
+@media (max-width: 900px) { .layout.market .board-wrap { position: static; } }
+@media (max-width: 900px) { .layout.market { grid-template-columns: minmax(0, 1fr); } }
+.stocks tr.pickable { cursor: pointer; }
+.stocks tr.pickable:hover td { background: var(--soft); }
+.stocks tr.picked td { background: #FFF3C4; color: #1B2340; }
+.stocks tr.picked td:first-child { box-shadow: inset 4px 0 0 #E0A21B; }
+.stocks.wide td:first-child { white-space: nowrap; }
+.stocks.wide .grid2 { display: grid; grid-template-columns: repeat(2, auto); grid-auto-flow: column; grid-template-rows: repeat(2, auto); gap: 4px; justify-content: end; }
+.stocks.wide .grid2 .btn { min-width: 64px; }
+/* 株式市場で選んだ通りのマスを点滅 */
+.sq.blink { animation: blink .7s ease-in-out infinite alternate; }
+@keyframes blink { from { box-shadow: 0 0 0 0 #F2C230; filter: none; } to { box-shadow: 0 0 0 5px #F2C230, 0 0 16px #F2C230; filter: brightness(1.12); } }
+@media (prefers-reduced-motion: reduce) { .sq.blink { animation: none; box-shadow: 0 0 0 4px #F2C230; } }
+@media (max-width: 600px) {
+  .stocks.wide th:nth-child(3), .stocks.wide td:nth-child(3), .stocks.wide th:nth-child(4), .stocks.wide td:nth-child(4) { display: none; }
+  .stocks.wide .grid2 .btn:nth-child(n+3) { display: none; }
+  .stocks.wide .grid2 .btn { min-width: 0; }
+  .tabs { padding: 0 12px; }
+}

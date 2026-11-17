@@ -102,6 +102,32 @@ for (const [label, viewport] of [['PC', { width: 1280, height: 900 }], ['スマ�
   });
 }
 
+await step('株式市場タブ：株を買える場面で自動で開き、行を押すと 2D の通りが点滅し、ターンを終えると盤面に戻る', async () => {
+  const { page, errors } = await newPage({ width: 1280, height: 900 }, { ...base, mapId: 'corner', view: '3d' });
+  await page.getByRole('button', { name: 'はじめる' }).click();
+  await page.getByRole('button', { name: 'サイコロを振る' }).click();
+  for (let k = 0; k < 20; k++) {
+    await page.waitForTimeout(400);
+    const dirs = page.locator('.actions .dirs button');
+    if (await dirs.count()) { await dirs.first().click(); continue; }
+    const skip = page.locator('.actions button', { hasText: /見送る|増資しない/ });
+    if (await skip.count()) { await skip.first().click(); continue; }
+    if (await page.locator('.actions button', { hasText: 'ターンを終える' }).count()) break;
+  }
+  assert(await page.locator('.layout.market').count() === 1, '株式市場タブが開かない');
+  assert(await page.locator('.tab.on', { hasText: '株式市場' }).count() === 1, 'タブが選ばれていない');
+  await page.locator('.stocks.wide tbody tr').nth(0).click();
+  const blink = await page.locator('.sq.blink').count();
+  assert(blink === 3, `あさひ通り（3 軒）が点滅しない（${blink}）`);
+  await page.locator('.stocks.wide tbody tr').nth(0).click();
+  assert(await page.locator('.sq.blink').count() === 0, 'もう一度押しても点滅が止まらない');
+  await page.locator('.actions button', { hasText: 'ターンを終える' }).click();
+  await page.waitForSelector('.actions button:has-text("サイコロを振る")', { timeout: 90_000 });
+  assert(await page.locator('.board3d').count() === 1, '盤面（3D）に戻らない');
+  assert(errors.length === 0, `エラー：${errors.join(' / ')}`);
+  await page.close();
+});
+
 await step('保存と再開：再読み込みで「つづきから」になり、同じ状態に戻る', async () => {
   const { page, errors } = await newPage({ width: 1280, height: 900 }, { ...base, mapId: 'harbor', view: '2d' });
   await page.getByRole('button', { name: 'はじめる' }).click();

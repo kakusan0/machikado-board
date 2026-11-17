@@ -13,6 +13,7 @@ export interface BoardView {
   selected: number | null;
   onSelect: (sq: number) => void;
   choices?: number[]; // 分かれ道で選べるマス
+  highlightStreet?: number | null; // 点滅させる通り（株式市場で選んだ通り）
   message?: string;
 }
 
@@ -53,7 +54,7 @@ export function renderBoard(s: GameState, v: BoardView): HTMLElement {
     const mono = s.mode === 'normal' && owner && sq.kind === 'shop' && isMonopoly(s, sq.street!, owner.id);
     const fresh = mono && s.monopoly?.street === sq.street; // この番に独占したばかり
     const cell = h('button', {
-      class: `sq k-${sq.kind}${owner ? ' owned' : ''}${mono ? ' mono' : ''}${fresh ? ' fresh' : ''}${v.selected === sq.id ? ' sel' : ''}${choices.has(sq.id) ? ' choice' : ''}`,
+      class: `sq k-${sq.kind}${owner ? ' owned' : ''}${mono ? ' mono' : ''}${fresh ? ' fresh' : ''}${v.selected === sq.id ? ' sel' : ''}${choices.has(sq.id) ? ' choice' : ''}${v.highlightStreet != null && sq.street === v.highlightStreet ? ' blink' : ''}`,
       style: {
         gridColumn: String(x + 1), gridRow: String(y + 1),
         '--street': street?.color ?? 'transparent', '--owner': owner?.color ?? 'transparent',

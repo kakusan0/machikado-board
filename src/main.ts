@@ -2,7 +2,7 @@ import './style.css';
 import { decide } from './game/ai';
 import { MAPS, getMap } from './game/maps';
 import type { Action, CpuLevel, GameState, Mode } from './game/state';
-import { apply, newGame } from './game/turn';
+import { apply, canBuyStock, newGame } from './game/turn';
 import { OnlineClient, createRoom, findMatch, savedSession, type RoomView } from './net/online';
 import { renderBoard, type BoardView } from './ui/board2d';
 import { createBoard3D, DETAIL_NAMES, DICE_MS, type Board3D, type Detail } from './ui/board3d';
@@ -49,6 +49,11 @@ let tick: number | undefined;
 const queue: RoomView[] = [];
 const bubbles = new Map<number, { text: string; until: number }>();
 const muted = new Set<number>(load<number[]>(MUTE_KEY) ?? []);
+
+// 株式市場タブ：株を買えるときに自動で開き、終わったら盤面に戻す
+let tab: 'board' | 'market' = 'board';
+let autoKey = ''; // 自動で開いた「買える場面」の目印
+let pickStreet: number | null = null; // 株式市場で選んだ通り（2D の盤面で点滅）
 
 function get3d(): Board3D | null {
   if (no3d) return null;
@@ -198,6 +203,11 @@ function render() {
   if (!state) return renderSetup();
   const s = shown(state);
   const me = mySeat();
+  // 自分の番で株を買える場面になったら株式市場タブを開き、場面が終わったら盤面に戻す
+  const chance = s.mode === 'normal' && s.turn === me && !busy && canBuyStock(s);
+  const key = chance ? `${s.round}:${s.turn}:${s.phase}:${s.pending?.kind ?? ''}` : '';
+  if (key && key !== autoKey) { tab = 'market'; autoKey = key; }
+  if (!key && autoKey && !busy) { tab = 'board'; autoKey = ''; pickStreet = null; }
   const view = h('div', { class: 'game' },
     h('header', { class: 'top' },
       h('b', {}, 'まちかど商店街ボード'),
@@ -226,7 +236,8 @@ function render() {
         if (s.phase !== 'over' && !confirm('いまのゲームをやめてタイトルに戻りますか？（途中経過は消えます）')) return;
         window.clearTimeout(timer); busy = false; state = null; store(SAVE_KEY, null); render();
       } }, online ? 'ぬける' : 'やめる')),
-    h('main', { class: 'layout' },
+    renderTabs(s),
+    tab === 'market' && s.mode === 'normal' ? renderMarket(s) : h('main', { class: 'layout' },
       h('div', { class: 'board-wrap' }, boardEl(s)),
       h('div', { class: 'side' },
         online ? renderOnlineBar(s) : null,
@@ -266,6 +277,33 @@ function renderOnlineBar(s: GameState): HTMLElement {
         if ((e.target as HTMLInputElement).checked) muted.add(i); else muted.delete(i);
         store(MUTE_KEY, [...muted]);
       } }), ` ${p.name}のメッセージを表示しない`)))));
+}
+
+function renderTabs(s: GameState): HTMLElement | null {
+  if (s.mode !== 'normal') return null;
+  const chance = s.turn === mySeat() && !busy && canBuyStock(s);
+  const btn = (id: 'board' | 'market', label: string, badge?: string) => h('button', {
+    class: `tab${tab === id ? ' on' : ''}`, role: 'tab', 'aria-selected': String(tab === id),
+    onclick: () => { tab = id; render(); },
+  }, label, badge ? h('span', { class: 'badge' }, badge) : null);
+  return h('nav', { class: 'tabs', role: 'tablist', 'aria-label': '表示の切り替え' },
+    btn('board', '盤面'), btn('market', '株式市場', chance ? '買えます' : undefined));
+}
+
+// 株式市場タブ：左に 2D の盤面（選んだ通りが点滅）、右に操作と株式市場
+function renderMarket(s: GameState): HTMLElement {
+  const me = mySeat();
+  const v: BoardView = { selected, highlightStreet: pickStreet, onSelect: (sq) => { selected = selected === sq ? null : sq; render(); } };
+  return h('main', { class: 'layout market' },
+    h('div', { class: 'board-wrap' }, renderBoard(s, v)),
+    h('div', { class: 'side' },
+      renderActions(s, act, busy, me),
+      renderStocks(s, act, busy, me, {
+        wide: true, highlight: pickStreet,
+        onPick: (st) => { pickStreet = pickStreet === st ? null : st; render(); },
+      }),
+      renderInfo(s, selected),
+      renderPlayers(s, { you: online ? me : undefined })));
 }
 
 function boardEl(s: GameState): HTMLElement {

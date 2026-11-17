@@ -1,7 +1,7 @@
 // 手番の操作・プレイヤー一覧・株式市場・ログ・マスの詳細
 import { arrow, getMap } from '../game/maps';
 import {
-  BUYOUT_MULT, MAX_SHARES, STOCK_COMMISSION, buyCost, canBuyout, fee, feeRate, investCap, isMonopoly, netWorth, salary,
+  BUYOUT_MULT, MAX_SHARES, STOCK_COMMISSION, STOCK_LOT, buyCost, canBuyout, fee, feeRate, investCap, isMonopoly, netWorth, salary,
   sellQuote, shopAssets, stockAssets, stockPrice, topHolder,
 } from '../game/rules';
 import type { Action, GameState } from '../game/state';
@@ -135,7 +135,13 @@ export function renderActions(s: GameState, act: Act, busy: boolean, mySeat = 0)
   return box;
 }
 
-export function renderStocks(s: GameState, act: Act, busy: boolean, mySeat = 0): HTMLElement | null {
+export interface StockOptions {
+  wide?: boolean; // 株式市場タブ用の広い表
+  highlight?: number | null; // 選んでいる通り（盤面で点滅させる）
+  onPick?: (street: number) => void; // 行を押したとき
+}
+
+export function renderStocks(s: GameState, act: Act, busy: boolean, mySeat = 0, o: StockOptions = {}): HTMLElement | null {
   if (s.mode !== 'normal') return null;
   const map = getMap(s.mapId);
   const p = s.players[s.turn];
@@ -143,25 +149,44 @@ export function renderStocks(s: GameState, act: Act, busy: boolean, mySeat = 0):
   const canBuy = mine && canBuyStock(s);
   const canSell = mine && canSellStock(s);
   const me = s.players[mySeat] ?? p;
-  return h('section', { class: 'panel stocks', 'aria-label': '株式市場' },
+  const shops = (i: number) => map.squares.filter((q) => q.kind === 'shop' && q.street === i);
+  const trade = (i: number, lots: number) => {
+    const buy = buyCost(s, i, lots);
+    const sell = me.shares[i] >= lots * STOCK_LOT ? sellQuote(s, i, lots) : null;
+    return [
+      h('button', { class: 'btn sm', disabled: !canBuy || p.cash < buy.cost || p.shares[i] + lots * STOCK_LOT > MAX_SHARES,
+        title: `${lots * STOCK_LOT} 株 ${g(buy.cost)}${buy.fee ? `（手数料 ${g(buy.fee)} を含む）` : ''}`,
+        onclick: () => act({ type: 'buyStock', street: i, lots }) }, lots === 1 ? '買う' : `買う×${lots * STOCK_LOT}`),
+      h('button', { class: 'btn sm', disabled: !canSell || !sell,
+        title: sell ? `${lots * STOCK_LOT} 株 ${g(sell.gain)}` : '', onclick: () => act({ type: 'sellStock', street: i, lots }) }, lots === 1 ? '売る' : `売る×${lots * STOCK_LOT}`),
+    ];
+  };
+  const head = o.wide
+    ? ['通り', '株価', '需給', '10株の代金', 'お店', '持ち株', '']
+    : ['通り', '株価', '需給', 'あなた', ''];
+  return h('section', { class: `panel stocks${o.wide ? ' wide' : ''}`, 'aria-label': '株式市場' },
     h('h2', {}, '株式市場'),
+    o.onPick ? h('p', { class: 'note' }, '行を押すと、その通りのマスが盤面で点滅します。') : null,
     h('table', {},
-      h('thead', {}, h('tr', {}, h('th', {}, '通り'), h('th', {}, '株価'), h('th', {}, '需給'), h('th', {}, 'あなた'), h('th', {}, ''))),
+      h('thead', {}, h('tr', {}, head.map((x) => h('th', {}, x)))),
       h('tbody', {}, map.streets.map((st, i) => {
         const top = topHolder(s, i);
-        const buy = buyCost(s, i, 1);
-        const sell = me.shares[i] > 0 ? sellQuote(s, i, 1) : null;
-        return h('tr', {},
+        const pick = () => o.onPick?.(i);
+        return h('tr', {
+          class: `${o.onPick ? 'pickable' : ''}${o.highlight === i ? ' picked' : ''}`,
+          tabindex: o.onPick ? '0' : null,
+          'aria-pressed': o.onPick ? String(o.highlight === i) : null,
+          onclick: (e: Event) => { if (!(e.target as HTMLElement).closest('button')) pick(); },
+          onkeydown: (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } },
+        },
           h('td', {}, h('span', { class: 'chip', style: { background: st.color } }), st.name,
             top != null ? h('small', { class: 'top', style: { color: s.players[top].color } }, ` 筆頭:${s.players[top].name}`) : null),
           h('td', { class: 'num' }, g(stockPrice(s, i))),
           h('td', { class: `num ${s.demand[i] > 1.005 ? 'up' : s.demand[i] < 0.995 ? 'down' : ''}` }, `×${s.demand[i].toFixed(2)}`),
+          o.wide ? h('td', { class: 'num' }, g(buyCost(s, i, 1).cost)) : null,
+          o.wide ? h('td', { class: 'num', title: 'あなたのお店／通りのお店の数' }, `${shops(i).filter((q) => s.props[q.id]?.owner === mySeat).length}/${shops(i).length}軒`) : null,
           h('td', { class: 'num' }, `${me.shares[i]} 株`),
-          h('td', { class: 'trade' },
-            h('button', { class: 'btn sm', disabled: !canBuy || p.cash < buy.cost || p.shares[i] >= MAX_SHARES,
-              title: `10 株 ${g(buy.cost)}${buy.fee ? `（手数料 ${g(buy.fee)} を含む）` : ''}`, onclick: () => act({ type: 'buyStock', street: i, lots: 1 }) }, '買う'),
-            h('button', { class: 'btn sm', disabled: !canSell || !sell,
-              title: sell ? `10 株 ${g(sell.gain)}` : '', onclick: () => act({ type: 'sellStock', street: i, lots: 1 }) }, '売る')),
+          h('td', { class: 'trade' }, o.wide ? h('div', { class: 'grid2' }, trade(i, 1), trade(i, 5)) : trade(i, 1)),
         );
       }))),
     h('p', { class: 'note' }, `10 株単位で、ターンの終わりにいつでも買えます（銀行・両替所に寄っていない番は手数料 ${Math.round(STOCK_COMMISSION * 100)}%）。利用料が払われるたびに 2 株につき 1G の配当、筆頭株主（50 株以上）は利用料の 10%。`));
