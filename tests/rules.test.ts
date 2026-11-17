@@ -271,3 +271,20 @@ describe('分かれ道', () => {
     expect(s.players[0].pos).toBe(7);
   });
 });
+
+describe('CPU の強さ', () => {
+  it('勝った回数が つよい ＞ ふつう ＞ やさしい（60 試合・席順を回す）', { timeout: 180_000 }, () => {
+    const lv = ['easy', 'normal', 'hard'] as const;
+    const wins: Record<string, number> = { easy: 0, normal: 0, hard: 0, fourth: 0 };
+    for (let g = 0; g < 60; g++) {
+      const order = [lv[g % 3], lv[(g + 1) % 3], lv[(g + 2) % 3], 'normal' as const];
+      let s = newGame({ mapId: MAPS[g % 3].id, mode: 'normal', seed: 7000 + g, maxRounds: 80,
+        players: order.map((c, i) => ({ name: `P${i}`, cpu: c })) });
+      while (s.phase !== 'over') s = apply(s, decide(s));
+      wins[s.winner === 3 ? 'fourth' : s.players[s.winner!].cpu!] += 1;
+    }
+    console.log('勝った回数', wins);
+    expect(wins.hard).toBeGreaterThan(wins.normal);
+    expect(wins.normal).toBeGreaterThan(wins.easy);
+  });
+});

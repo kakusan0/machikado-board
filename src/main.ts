@@ -103,7 +103,7 @@ function render() {
       h('label', { class: 'fast' }, h('input', { type: 'checkbox', checked: settings.fast, onchange: (e: Event) => {
         settings.fast = (e.target as HTMLInputElement).checked; store(SETTINGS_KEY, settings);
       } }), ' 早送り'),
-      h('a', { href: '/rules.html', target: '_blank', class: 'link' }, '遊び方'),
+      h('a', { href: '/rules.html', target: '_blank', rel: 'noopener', class: 'link' }, '遊び方'),
       h('button', { class: 'btn sm', onclick: () => {
         if (s.phase !== 'over' && !confirm('いまのゲームをやめてタイトルに戻りますか？（途中経過は消えます）')) return;
         window.clearTimeout(timer); busy = false; state = null; store(SAVE_KEY, null); render();
@@ -169,6 +169,7 @@ function renderSetup() {
       store(SAVE_KEY, state);
       render();
     } }, saved ? 'あたらしく始める' : 'はじめる'),
+    h('a', { href: '/rules.html', class: 'link rules-link' }, '遊び方を見る'),
     h('p', { class: 'build' }, `版：${__BUILD__}`)));
 }
 

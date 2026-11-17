@@ -1,0 +1,74 @@
+// 遊び方のページ。数値はゲームの定数から読むので、ルールを変えてもずれない
+import './style.css';
+import { CARDS } from './game/cards';
+import { MAPS } from './game/maps';
+import {
+  BUYOUT_MULT, BUYOUT_OWNER_SHARE, DEMAND_DECAY, DEMAND_MAX, DEMAND_MIN, EASY_FEE_RATE, FEE_RATES, LIQUIDATE_RATE,
+  MAX_SHARES, MONOPOLY_BONUS, STOCK_LOT, TOP_HOLDER_MIN, TOP_HOLDER_RATE, salary,
+} from './game/rules';
+import { h } from './ui/dom';
+
+const pct = (x: number) => `${Math.round(x * 100)}%`;
+const sec = (title: string, ...body: (HTMLElement | string)[]) => h('section', { class: 'panel' }, h('h2', {}, title), ...body);
+const p = (text: string) => h('p', {}, text);
+const ul = (items: string[]) => h('ul', {}, items.map((x) => h('li', {}, x)));
+
+document.getElementById('rules')!.replaceWith(h('main', { class: 'rules' },
+  h('a', { href: '/', class: 'back' }, '← ゲームに戻る'),
+  h('h1', {}, '遊び方'),
+  p('お店を買って利用料を集め、増資と株で資産をふやすボードゲームです。あなた 1 人とコンピューター 3 人で遊びます。'),
+
+  sec('勝ち方',
+    p('総資産（現金＋お店の価値＋株の評価額）が目標に届いた状態で銀行を通るか止まると勝ちです。'),
+    ul(MAPS.map((m) => `${m.name}：目標 ${m.target.toLocaleString()}G（はじめの現金 ${m.startCash.toLocaleString()}G・${m.squares.length} マス）`)),
+    p('だれかが破産したときや、決められた周回が終わったときは、総資産が一番多い人の勝ちです。')),
+
+  sec('進み方と分かれ道',
+    p('サイコロを振って、出た目の数だけ進みます。'),
+    p('分かれ道では止まって、進む方向を選びます。ボタンか、盤面で光っているマスを押してください。'),
+    p('来た道へは戻れません。スタートの銀行だけは、どちらへも進めます。')),
+
+  sec('スタンプと昇格',
+    p('パン・花・本・鍵の 4 種類のスタンプマスがあります。通るか止まると、そのスタンプがもらえます。'),
+    p(`4 つそろえて銀行に戻ると昇格し、給料をもらえます。給料は段階ごとに上がります：1 段階目 ${salary(1)}G、2 段階目 ${salary(2)}G、3 段階目 ${salary(3)}G…`)),
+
+  sec('お店と利用料',
+    p('空き店舗に止まると買えます。ほかの人が自分のお店に止まると、利用料が入ります。'),
+    p(`利用料の割合は、同じ通りで持っているお店の数で変わります：${FEE_RATES.map((r, i) => `${i + 1} 軒 ${pct(r)}`).join('、')}。通りを独占すると、さらに ${pct(MONOPOLY_BONUS)} 上がります。`),
+    p('自分のお店に止まると、同じ通りの自分のお店に増資できます。増資すると、お店の価値と利用料と株価が上がり、3D の盤面では建物が高くなります。'),
+    p('増資の上限は「基本価格 ×（1＋所有数×0.5）」です。独占すると基本価格の 3 倍まで増資できます。')),
+
+  sec('株（ふつうモード）',
+    ul([
+      '株価 ＝（10 ＋ 通りの価値 ÷ 40）× 需給',
+      `買えるのは、銀行か両替所に寄った番だけです。${STOCK_LOT} 株単位で売り買いし、1 つの通りで持てるのは 1 人 ${MAX_SHARES} 株までです`,
+      '売るのは、自分の番ならいつでもできます',
+      `${STOCK_LOT} 株買うごとに株価が 2% 上がり、売るごとに下がります。需給の範囲は ${DEMAND_MIN}〜${DEMAND_MAX} 倍で、毎周 ${pct(DEMAND_DECAY)} ずつ 1 倍に戻ります`,
+      'その通りで利用料が払われるたびに、株主には 2 株につき 1G の配当が入ります',
+      `筆頭株主（${TOP_HOLDER_MIN} 株以上で 1 位の人）は、利用料の ${pct(TOP_HOLDER_RATE)} も受け取ります`,
+    ])),
+
+  sec('買収（ふつうモード）',
+    p(`ほかの人のお店に止まって利用料を払ったあと、価値の ${BUYOUT_MULT} 倍で買い取れます。代金の ${pct(BUYOUT_OWNER_SHARE)} は持ち主に、残りは銀行に入ります。独占されている通りのお店は買い取れません。`)),
+
+  sec('空き地（ふつうモード）',
+    ul(['屋台村：利用料は 40G ＋ 持ち主のお店 1 軒につき 15G', '両替所：止まった人は株を買えます（手数料 30G）'])),
+
+  sec('広場',
+    p('広場に止まると、次の自分の番まで自分のお店がお休みになり、利用料が入りません。')),
+
+  sec('破産',
+    p(`支払いで現金がマイナスになると、安いお店から順に価値の ${pct(LIQUIDATE_RATE)} で手放し、次に株を売ります。それでも足りないと破産で、その時点でゲームが終わります。`)),
+
+  sec('モード',
+    ul([
+      'ふつう：ここまでのすべてのルールで遊びます',
+      `かんたん：株・買収・増資・空き地はありません。利用料はお店の価値の ${pct(EASY_FEE_RATE)} で、つながったマスに自分のお店が 1 軒あれば ×1.5、2 軒以上あれば ×2 になります`,
+    ])),
+
+  sec('チャンスカード（20 種）',
+    h('table', { class: 'cards' }, h('tbody', {}, CARDS.map((c) => h('tr', {}, h('th', {}, c.title), h('td', {}, c.text)))))),
+
+  sec('コンピューターの強さ',
+    ul(['やさしい：気まぐれに買ったり見送ったりします。買収はしません', 'ふつう：堅実に買い、ときどき買収します', 'つよい：独占を狙って増資・買収し、株もよく使います'])),
+));

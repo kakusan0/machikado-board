@@ -16,9 +16,9 @@ interface Style {
 }
 
 const STYLES: Record<CpuLevel, Style> = {
-  easy: { reserve: 0.05, investShare: 0.3, buyoutMin: 0, stockShare: 0.1, noise: 0.5 },
-  normal: { reserve: 0.15, investShare: 0.5, buyoutMin: 0.9, stockShare: 0.2, noise: 0.2 },
-  hard: { reserve: 0.2, investShare: 0.7, buyoutMin: 0.6, stockShare: 0.3, noise: 0.05 },
+  easy: { reserve: 0.05, investShare: 0.25, buyoutMin: 0, stockShare: 0.1, noise: 0.6 },
+  normal: { reserve: 0.15, investShare: 0.45, buyoutMin: 0.95, stockShare: 0.15, noise: 0.3 },
+  hard: { reserve: 0.12, investShare: 0.85, buyoutMin: 0.6, stockShare: 0.35, noise: 0 },
 };
 
 export function decide(s: GameState): Action {
@@ -36,7 +36,8 @@ export function decide(s: GameState): Action {
     switch (s.pending.kind) {
       case 'direction': {
         const opts = s.pending.options;
-        if (level === 'easy' && r(7) < 0.5) return { type: 'move', to: opts[Math.floor(r(8) * opts.length)] };
+        // やさしいは半分、ふつうは 4 回に 1 回、気まぐれに選ぶ
+        if (r(7) < (level === 'easy' ? 0.5 : level === 'normal' ? 0.25 : 0)) return { type: 'move', to: opts[Math.floor(r(8) * opts.length)] };
         const left = s.moving?.left ?? 1;
         let best = opts[0];
         let bestScore = -Infinity;
@@ -49,6 +50,12 @@ export function decide(s: GameState): Action {
       }
       case 'buyShop': {
         const price = s.props[sq]!.value;
+        // つよい：お店は資産で利用料も入るので、払えるなら買う。相手の独占を防ぐときは手持ちぎりぎりでも買う
+        if (level === 'hard') {
+          const street = map.squares[sq].street!;
+          const blocks = s.players.some((o) => o.id !== p.id && ownedInStreet(s, street, o.id) >= streetSquares(s, street).length - 1);
+          return p.cash - price >= (blocks ? 0 : reserve * 0.5) ? { type: 'buyShop' } : { type: 'skip' };
+        }
         const want = p.cash - price >= reserve || (level !== 'easy' && p.cash - price >= 0 && r(1) < 0.5);
         return want && r(2) > st.noise * 0.3 ? { type: 'buyShop' } : { type: 'skip' };
       }
@@ -60,9 +67,13 @@ export function decide(s: GameState): Action {
       case 'invest': {
         const opts = investOptions(s);
         if (!opts.length) return { type: 'skip' };
-        // 一番高いお店へ（利用料が増えやすい）。つよいは独占している通りを優先して大きく
+        // 一番高いお店へ（利用料が増えやすい）。つよいは利用料の割合が高い（独占・多数）ときほど大きく
         const best = opts.sort((a, b) => s.props[b.sq]!.value - s.props[a.sq]!.value)[0];
-        const budget = Math.floor((p.cash - reserve) * st.investShare);
+        const street = map.squares[best.sq].street!;
+        const share = level === 'hard'
+          ? (isMonopoly(s, street, p.id) ? 0.95 : ownedInStreet(s, street, p.id) >= 2 ? st.investShare : 0.4)
+          : st.investShare;
+        const budget = Math.floor((p.cash - reserve) * share);
         const amount = Math.min(best.room, budget);
         return amount >= 20 ? { type: 'invest', sq: best.sq, amount } : { type: 'skip' };
       }
@@ -81,10 +92,15 @@ export function decide(s: GameState): Action {
   }
 
   if (s.phase === 'stock') {
-    // 足りないときや、値上がりした株は売る
+    // 足りないときは売る
     if (p.cash < reserve) {
       const st0 = p.shares.findIndex((n) => n > 0);
       if (st0 >= 0) return { type: 'sellStock', street: st0, lots: 1 };
+    }
+    // つよい：需給が高くなった株は、自分の独占でなければ売って利益を確定する
+    if (level === 'hard') {
+      const k = p.shares.findIndex((n, i) => n > 0 && s.demand[i] > 1.3 && !isMonopoly(s, i, p.id));
+      if (k >= 0) return { type: 'sellStock', street: k, lots: Math.min(p.shares[k] / STOCK_LOT, 5) };
     }
     if (canBuyStock(s)) {
       const budget = (p.cash - reserve * 2) * st.stockShare;
@@ -122,7 +138,7 @@ function routeScores(s: GameState, pos: number, prev: number, left: number, stam
     const pr = s.props[pos];
     if (q.kind === 'shop' && pr) {
       if (pr.owner == null) sc += p.cash >= pr.value ? 30 : 0;
-      else if (pr.owner === p.id) sc += 15;
+      else if (pr.owner === p.id) sc += isMonopoly(s, q.street!, p.id) ? 40 : 15;
       else sc -= fee(s, pos);
     }
     if (q.kind === 'chance') sc += 5;

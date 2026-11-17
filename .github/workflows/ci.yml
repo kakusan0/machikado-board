@@ -17,4 +17,7 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
-      - run: npx vite build
+      - name: 画面テスト用のブラウザを入れる
+        run: npx playwright install --with-deps chromium
+      - name: 画面テスト（ビルドしてブラウザで遊ぶ）
+        run: npm run e2e
