@@ -12,7 +12,7 @@ import { h, g } from './dom';
 
 export type Act = (a: Action) => void;
 
-export interface PlayerExtras { status?: (pid: number) => string | null; bubble?: (pid: number) => string | null; you?: number }
+export interface PlayerExtras { status?: (pid: number) => string | null; bubble?: (pid: number) => string | null; you?: number; detailed?: boolean }
 
 export function renderPlayers(s: GameState, x: PlayerExtras = {}): HTMLElement {
   const map = getMap(s.mapId);
@@ -22,7 +22,7 @@ export function renderPlayers(s: GameState, x: PlayerExtras = {}): HTMLElement {
       return h('div', { class: `pl${p.id === s.turn ? ' now' : ''}${p.bankrupt ? ' out' : ''}`, style: { '--pc': p.color } },
         h('div', { class: 'row' },
           h('span', { class: 'dot' }),
-          h('b', { class: 'pname' }, p.name, x.you === p.id ? h('small', { class: 'you' }, '（あなた）') : null),
+          h('b', { class: 'pname' }, p.name, x.you === p.id && p.name !== 'あなた' ? h('small', { class: 'you' }, '（あなた）') : null),
           x.status?.(p.id) ? h('span', { class: 'status' }, x.status(p.id)) : null,
           h('span', { class: 'lv' }, `段階 ${p.level}`),
           h('span', { class: 'stamps', 'aria-label': 'スタンプ' },
@@ -32,11 +32,47 @@ export function renderPlayers(s: GameState, x: PlayerExtras = {}): HTMLElement {
           h('span', {}, '現金 ', h('b', {}, g(p.cash))),
           h('span', {}, '総資産 ', h('b', {}, g(nw))),
         ),
+        x.detailed ? h('div', { class: 'row nums detail' },
+          h('span', {}, 'お店 ', h('b', {}, `${shopCount(s, p.id)} 軒`), ` (${g(shopAssets(s, p.id))})`),
+          s.mode === 'normal' ? h('span', {}, '株 ', h('b', {}, g(stockAssets(s, p.id)))) : null) : null,
+        x.detailed && s.mode === 'normal' && p.shares.some((n) => n > 0)
+          ? h('div', { class: 'shares' }, getMap(s.mapId).streets.map((st, i) => (p.shares[i] > 0
+            ? h('span', {}, h('i', { style: { background: st.color } }), `${st.name} ${p.shares[i]}株`) : null)))
+          : null,
         x.bubble?.(p.id) ? h('div', { class: 'bubble', role: 'status' }, x.bubble(p.id)) : null,
         h('div', { class: 'bar', role: 'progressbar', 'aria-valuenow': String(Math.round(nw)), 'aria-valuemax': String(map.target) },
           h('i', { style: { width: `${Math.min(100, (nw / map.target) * 100)}%` } })),
       );
     }));
+}
+
+const shopCount = (s: GameState, pid: number) => {
+  const map = getMap(s.mapId);
+  return s.props.filter((x, i) => x?.owner === pid && map.squares[i].kind === 'shop').length;
+};
+
+// マップの上の帯：自分の情報（現金・総資産・目標までの進み・段階とスタンプ・お店・株）
+export function renderMe(s: GameState, me: number, toast?: string | null): HTMLElement {
+  const map = getMap(s.mapId);
+  const p = s.players[me];
+  const nw = netWorth(s, me);
+  const turn = s.phase === 'over' ? 'ゲーム終了' : s.turn === me ? 'あなたの番' : `${s.players[s.turn].name}の番`;
+  return h('section', { class: 'me-bar', style: { '--pc': p.color }, 'aria-label': 'あなたの情報' },
+    h('div', { class: 'who' }, h('span', { class: 'dot' }), h('b', {}, p.name), p.name === 'あなた' ? null : h('small', {}, '（あなた）'),
+      h('span', { class: `turn${s.turn === me ? ' mine' : ''}` }, turn)),
+    h('div', { class: 'nums' },
+      h('span', {}, '現金 ', h('b', {}, g(p.cash))),
+      h('span', {}, '総資産 ', h('b', {}, g(nw))),
+      h('span', {}, '段階 ', h('b', {}, String(p.level))),
+      h('span', { class: 'stamps', 'aria-label': 'スタンプ' },
+        p.stamps.map((ok, i) => h('span', { class: ok ? 'on' : 'off', title: STAMP_NAMES[i] }, STAMP_ICONS[i]))),
+      h('span', {}, 'お店 ', h('b', {}, `${shopCount(s, me)} 軒`)),
+      s.mode === 'normal' ? h('span', {}, '株 ', h('b', {}, g(stockAssets(s, me)))) : null),
+    h('div', { class: 'goal' },
+      h('div', { class: 'bar', role: 'progressbar', 'aria-valuenow': String(Math.round(nw)), 'aria-valuemax': String(map.target) },
+        h('i', { style: { width: `${Math.min(100, (nw / map.target) * 100)}%` } })),
+      h('small', {}, `目標 ${g(map.target)}まで あと ${g(Math.max(0, map.target - nw))}`)),
+    toast ? h('div', { class: 'toast', role: 'status' }, toast) : null);
 }
 
 export function renderActions(s: GameState, act: Act, busy: boolean, mySeat = 0): HTMLElement {
@@ -141,6 +177,14 @@ export interface StockOptions {
   onPick?: (street: number) => void; // 行を押したとき
 }
 
+// 「買う」が押せない理由（押せるときは null）
+function buyReason(s: GameState, busy: boolean, mySeat: number): string | null {
+  if (s.mode !== 'normal' || s.phase === 'over') return null;
+  if (s.turn !== mySeat || busy) return 'あなたの番になると売り買いできます。';
+  if (!canBuyStock(s)) return '株を買えるのは銀行にいるときだけです（通るだけでも買えます）。売るのはいつでもできます。';
+  return null;
+}
+
 // 1 つの通りの「買う」「売る」ボタン（lots は 10 株の単位の数）
 function tradeButtons(s: GameState, act: Act, busy: boolean, mySeat: number, i: number, lots: number): HTMLElement[] {
   const p = s.players[s.turn];
@@ -151,10 +195,10 @@ function tradeButtons(s: GameState, act: Act, busy: boolean, mySeat: number, i: 
   const buy = buyQuote(s, i, lots);
   const sell = me.shares[i] >= lots * STOCK_LOT ? sellQuote(s, i, lots) : null;
   return [
-    h('button', { class: 'btn sm', disabled: !canBuy || p.cash < buy.cost || p.shares[i] + lots * STOCK_LOT > MAX_SHARES,
+    h('button', { class: 'btn sm buy', disabled: !canBuy || p.cash < buy.cost || p.shares[i] + lots * STOCK_LOT > MAX_SHARES,
       title: `${lots * STOCK_LOT} 株 ${g(buy.cost)}`,
       onclick: () => act({ type: 'buyStock', street: i, lots }) }, lots === 1 ? '買う' : `買う×${lots * STOCK_LOT}`),
-    h('button', { class: 'btn sm', disabled: !canSell || !sell,
+    h('button', { class: 'btn sm sell', disabled: !canSell || !sell,
       title: sell ? `${lots * STOCK_LOT} 株 ${g(sell.gain)}` : '', onclick: () => act({ type: 'sellStock', street: i, lots }) }, lots === 1 ? '売る' : `売る×${lots * STOCK_LOT}`),
   ];
 }
@@ -183,6 +227,7 @@ export function renderStreetInfo(s: GameState, act: Act, busy: boolean, mySeat: 
       h('div', {}, h('dt', {}, 'あなたの持ち株'), h('dd', {}, `${me.shares[street]} 株`)),
       h('div', {}, h('dt', {}, '筆頭株主'), h('dd', {}, top != null ? s.players[top].name : 'なし'))),
     h('div', { class: 'btns' }, tradeButtons(s, act, busy, mySeat, street, 1), tradeButtons(s, act, busy, mySeat, street, 5)),
+    buyReason(s, busy, mySeat) ? h('p', { class: 'reason' }, buyReason(s, busy, mySeat)) : null,
     h('table', { class: 'shops' },
       h('thead', {}, h('tr', {}, h('th', {}, 'お店'), h('th', {}, '持ち主'), h('th', {}, '価値'), h('th', {}, '利用料'))),
       h('tbody', {}, shops.map((q) => {
@@ -208,6 +253,7 @@ export function renderStocks(s: GameState, act: Act, busy: boolean, mySeat = 0, 
   return h('section', { class: `panel stocks${o.wide ? ' wide' : ''}`, 'aria-label': '株式市場' },
     h('h2', {}, '株式市場'),
     o.onPick ? h('p', { class: 'note' }, '行を押すと、その通りのマスが盤面で点滅します。') : null,
+    buyReason(s, busy, mySeat) ? h('p', { class: 'reason' }, buyReason(s, busy, mySeat)) : null,
     h('table', {},
       h('thead', {}, h('tr', {}, head.map((x) => h('th', {}, x)))),
       h('tbody', {}, map.streets.map((st, i) => {

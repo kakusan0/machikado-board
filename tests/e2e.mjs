@@ -91,6 +91,13 @@ for (const [label, viewport] of [['PC', { width: 1280, height: 900 }], ['スマ�
       bought += r.bought; forks += r.forks;
     }
     assert(forks > 0, '分かれ道に一度も止まらなかった');
+    // マップの上に自分の情報。ほかの人の情報は「プレイヤー」タブ
+    assert(await page.locator('.me-bar').count() === 1, 'マップの上に自分の情報がない');
+    assert((await page.locator('.me-bar').textContent()).includes('現金'), '自分の情報に現金がない');
+    assert(await page.locator('.layout .side .pl').count() === 0, '盤面タブにほかの人の情報が残っている');
+    await page.getByRole('tab', { name: 'プレイヤー' }).click();
+    assert(await page.locator('.players-tab .pl').count() === 4, 'プレイヤータブに 4 人いない');
+    await page.getByRole('tab', { name: '盤面' }).click();
     // 自分のコマは 1 つだけ目立たせて「あなた」と出る
     assert(await page.locator('.token.me').count() === 1, '自分のコマの目印がない');
     assert((await page.locator('.token.me').textContent()).includes('あなた'), '自分のコマに「あなた」がない');
@@ -131,6 +138,7 @@ await step('株式市場タブ：銀行で自動で開き、行を押すと 2D �
   // マップのお店を押すと、その通りの情報が株式市場の表より上に出て、通りが点滅する
   await page.locator('.layout.market .sq[aria-label="パン工房"]').click();
   await page.waitForSelector('.street-info');
+  assert(await page.locator('.street-info .btn.buy:not([disabled])').count() >= 1, '銀行なのに通りの詳細の「買う」が押せない');
   const shopRows = await page.locator('.street-info .shops tbody tr').count();
   assert(shopRows === 3, `あさひ通りのお店の一覧が 3 行でない（${shopRows}）`);
   const above = await page.evaluate(() => document.querySelector('.street-info').getBoundingClientRect().top
@@ -160,16 +168,40 @@ await step('株式市場タブ：銀行で自動で開き、行を押すと 2D �
   await page.close();
 });
 
+await step('ダークモード：株式市場で選んだ通りの「買う」ボタンの文字が背景に埋もれない', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: 'dark' });
+  const page = await ctx.newPage();
+  await page.goto(BASE);
+  await page.evaluate((s) => { localStorage.clear(); localStorage.setItem('machikado-board/settings-v1', JSON.stringify(s)); }, { ...base, mapId: 'corner', view: '2d' });
+  await page.reload();
+  await page.getByRole('button', { name: 'はじめる' }).click();
+  await page.evaluate(() => { const k = 'machikado-board/save-v1'; const s = JSON.parse(localStorage.getItem(k)); s.players[0].pos = 1; s.players[0].prev = 2; localStorage.setItem(k, JSON.stringify(s)); });
+  await page.reload();
+  await page.getByRole('button', { name: /つづきから/ }).click();
+  await page.getByRole('button', { name: 'サイコロを振る' }).click();
+  await page.waitForSelector('.layout.market', { timeout: 15000 });
+  await page.locator('.stocks.wide tbody tr').nth(1).click();
+  const diff = await page.evaluate(() => {
+    const b = document.querySelector('.stocks.wide tr.picked .btn.buy');
+    const rgb = (c) => c.match(/\d+/g).slice(0, 3).map(Number);
+    const lum = ([r, g, bl]) => 0.299 * r + 0.587 * g + 0.114 * bl;
+    const cs = getComputedStyle(b);
+    return Math.abs(lum(rgb(cs.color)) - lum(rgb(cs.backgroundColor)));
+  });
+  assert(diff > 60, `ボタンの文字と背景の明るさの差が小さい（${diff.toFixed(0)}）`);
+  await ctx.close();
+});
+
 await step('保存と再開：再読み込みで「つづきから」になり、同じ状態に戻る', async () => {
   const { page, errors } = await newPage({ width: 1280, height: 900 }, { ...base, mapId: 'harbor', view: '2d' });
   await page.getByRole('button', { name: 'はじめる' }).click();
   await playMyTurn(page);
-  const cash = await page.locator('.pl').first().locator('.nums b').first().textContent();
+  const cash = await page.locator('.me-bar .nums b').first().textContent();
   await page.reload();
   const resume = page.getByRole('button', { name: /つづきから/ });
   assert(await resume.count() === 1, '「つづきから」がない');
   await resume.click();
-  const after = await page.locator('.pl').first().locator('.nums b').first().textContent();
+  const after = await page.locator('.me-bar .nums b').first().textContent();
   assert(after === cash, `現金が戻っていない（${cash} → ${after}）`);
   assert(errors.length === 0, `エラー：${errors.join(' / ')}`);
   await page.close();
@@ -249,7 +281,7 @@ await step('オンライン：部屋を作って合言葉で入り、2 人で対
   assert(await B.getByRole('button', { name: 'サイコロを振る' }).count() === 0, '相手の番なのに B がサイコロを振れる');
   // 定型メッセージが相手に届く
   await A.locator('.emotes button').first().click();
-  await B.waitForSelector('.bubble', { timeout: 10000 });
+  await B.waitForSelector('.me-bar .toast', { timeout: 10000 }); // 定型メッセージは自分の帯の下に出る
   // B が再読み込みしても、同じ対戦に戻れる
   await B.reload();
   await B.waitForSelector('.top .online', { timeout: 15000 });
