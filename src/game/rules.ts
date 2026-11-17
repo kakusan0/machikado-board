@@ -110,6 +110,13 @@ export function sellQuote(state: GameState, street: number, lots: number): { gai
   return { gain, demand: d };
 }
 
+// 持っている株をいま全部売ったときに入るお金（売るたびに株価が下がる分も含める）
+export function sellableCash(state: GameState, pid: number): number {
+  const p = state.players[pid];
+  if (state.mode !== 'normal') return 0;
+  return p.shares.reduce((a, n, st) => a + (n > 0 ? sellQuote(state, st, n / STOCK_LOT).gain : 0), 0);
+}
+
 export function shopAssets(state: GameState, pid: number): number {
   return state.props.reduce((a, p) => a + (p?.owner === pid ? p.value : 0), 0);
 }

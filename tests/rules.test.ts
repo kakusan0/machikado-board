@@ -419,3 +419,34 @@ describe('通りの独占の知らせ', () => {
     expect(apply(s, { type: 'buyShop' }).monopoly).toBeNull();
   });
 });
+
+describe('お店を買う資金が足りないとき', () => {
+  const landOnVacant = (cash: number, shares: number) => {
+    let s = game();
+    const sq = shopsOf(s, 3)[0]; // ほしぞら通りのお店
+    s.players[0].cash = cash;
+    s.players[0].shares[1] = shares;
+    standBefore(s, sq);
+    for (let seed = 0; seed < 1000; seed++) {
+      const t = structuredClone(s);
+      t.rng = seed;
+      if (apply(t, { type: 'roll' }).dice === 1) { s = t; break; }
+    }
+    return { s: apply(s, { type: 'roll' }), sq };
+  };
+  it('株を売れば買えるなら、買うか決める場面になり、株を売ってから買える', () => {
+    const { s, sq } = landOnVacant(50, 200);
+    const price = s.props[sq]!.value;
+    expect(s.pending).toEqual({ kind: 'buyShop', sq });
+    expect(() => apply(s, { type: 'buyShop' })).toThrow(); // まだ現金が足りない
+    let t = s;
+    while (t.players[0].cash < price) t = apply(t, { type: 'sellStock', street: 1, lots: 1 });
+    expect(t.pending).toEqual({ kind: 'buyShop', sq }); // 売っても場面はそのまま
+    const u = apply(t, { type: 'buyShop' });
+    expect(u.props[sq]!.owner).toBe(0);
+  });
+  it('株を全部売っても足りないなら、買う場面にならない', () => {
+    const { s } = landOnVacant(10, 0);
+    expect(s.pending?.kind).not.toBe('buyShop');
+  });
+});

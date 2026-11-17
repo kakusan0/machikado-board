@@ -293,3 +293,8 @@ legend { font-weight: 900; margin-bottom: 6px; }
 .pl .detail { color: var(--sub); }
 .pl .shares { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; margin-top: 4px; }
 .pl .shares i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 3px; }
+
+/* お店を買う資金が足りないとき */
+.raise { background: var(--soft); border-radius: 12px; padding: 8px 12px; margin-top: 8px; }
+.raise p { margin: 0 0 6px !important; color: var(--ink) !important; }
+.raise .chip { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; }

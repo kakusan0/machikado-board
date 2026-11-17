@@ -50,6 +50,13 @@ export function decide(s: GameState): Action {
       }
       case 'buyShop': {
         const price = s.props[sq]!.value;
+        // 現金が足りないとき：つよい・ふつうは、同じ通りに自分のお店があれば株を売って資金をつくる
+        if (p.cash < price) {
+          const street = map.squares[sq].street!;
+          const worth = level !== 'easy' && (ownedInStreet(s, street, p.id) >= 1 || level === 'hard');
+          const k = p.shares.findIndex((n) => n > 0);
+          return worth && k >= 0 ? { type: 'sellStock', street: k, lots: 1 } : { type: 'skip' };
+        }
         // つよい：お店は資産で利用料も入るので、払えるなら買う。相手の独占を防ぐときは手持ちぎりぎりでも買う
         if (level === 'hard') {
           const street = map.squares[sq].street!;
@@ -60,6 +67,7 @@ export function decide(s: GameState): Action {
         return want && r(2) > st.noise * 0.3 ? { type: 'buyShop' } : { type: 'skip' };
       }
       case 'buyLot': {
+        if (p.cash < s.props[sq]!.value) return { type: 'skip' };
         if (p.cash - s.props[sq]!.value < reserve * 1.5 || r(3) < st.noise) return { type: 'skip' };
         const shops = s.props.filter((x, i) => x?.owner === p.id && map.squares[i].kind === 'shop').length;
         return { type: 'buyLot', facility: shops >= 3 || level === 'easy' ? 'yatai' : 'ryogae' };

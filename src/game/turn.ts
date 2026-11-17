@@ -4,7 +4,7 @@ import { bankOf, distances, forwardOptions, getMap } from './maps';
 import { step } from './rng';
 import {
   BUYOUT_MULT, BUYOUT_OWNER_SHARE, DEMAND_DECAY, DEMAND_MAX, DEMAND_MIN, LIQUIDATE_RATE, MAX_SHARES, STOCK_LOT,
-  TOP_HOLDER_RATE, buyQuote, canBuyout, isMonopoly, dividendFor, fee, investCap, netWorth, salary, sellQuote, topHolder,
+  TOP_HOLDER_RATE, buyQuote, sellableCash, canBuyout, isMonopoly, dividendFor, fee, investCap, netWorth, salary, sellQuote, topHolder,
 } from './rules';
 import type { Action, CpuLevel, GameState, Mode, Player } from './state';
 import { FACILITY_NAMES, STAMP_NAMES } from './state';
@@ -172,7 +172,7 @@ export function apply(prev: GameState, a: Action): GameState {
       break;
     }
     case 'sellStock': {
-      need((s.phase === 'stock' || s.phase === 'roll' || (s.phase === 'decide' && s.pending?.kind === 'bankStock')) && s.mode === 'normal', a);
+      need(canSellStock(s), a);
       need(Number.isInteger(a.lots) && a.lots > 0 && p.shares[a.street] >= a.lots * STOCK_LOT, a);
       const q = sellQuote(s, a.street, a.lots);
       p.cash += q.gain;
@@ -306,7 +306,8 @@ function land(s: GameState, sq: number, depth: number) {
   switch (square.kind) {
     case 'shop': {
       if (pr!.owner == null) {
-        if (p.cash >= pr!.value) return decide(s, { kind: 'buyShop', sq });
+        // 現金が足りなくても、株を売れば買えるなら選ばせる（その場で株を売れる）
+        if (p.cash + sellableCash(s, p.id) >= pr!.value) return decide(s, { kind: 'buyShop', sq });
       } else if (pr!.owner === p.id) {
         if (s.mode === 'normal' && hasInvestRoom(s, square.street!, p.id)) return decide(s, { kind: 'invest', sq });
       } else {
@@ -322,7 +323,7 @@ function land(s: GameState, sq: number, depth: number) {
         break;
       }
       if (pr!.owner == null) {
-        if (p.cash >= pr!.value) return decide(s, { kind: 'buyLot', sq });
+        if (p.cash + sellableCash(s, p.id) >= pr!.value) return decide(s, { kind: 'buyLot', sq });
       } else if (pr!.owner === p.id) {
         if (pr!.facility === 'ryogae') s.exchangeTouched = true;
       } else {
@@ -549,8 +550,10 @@ export const canBuyStock = (s: GameState) => {
   if (s.phase !== 'stock') return false;
   return getMap(s.mapId).squares[s.players[s.turn].pos].kind === 'bank' || s.exchangeTouched;
 };
+// 株を売れるとき：自分の番のはじめ・終わり、銀行で止まっているとき、お店・空き地を買うか決めているとき（資金づくり）
 export const canSellStock = (s: GameState) =>
-  s.mode === 'normal' && (s.phase === 'stock' || s.phase === 'roll' || (s.phase === 'decide' && s.pending?.kind === 'bankStock'));
+  s.mode === 'normal' && (s.phase === 'stock' || s.phase === 'roll' ||
+    (s.phase === 'decide' && (s.pending?.kind === 'bankStock' || s.pending?.kind === 'buyShop' || s.pending?.kind === 'buyLot')));
 
 function isOver(s: GameState) {
   return s.phase === 'over';

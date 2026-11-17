@@ -75,6 +75,21 @@ export function renderMe(s: GameState, me: number, toast?: string | null): HTMLE
     toast ? h('div', { class: 'toast', role: 'status' }, toast) : null);
 }
 
+// 現金が足りないとき：あといくら必要かと、その場で株を売るボタン（通りごとに 10 株ずつ）
+function raiseCash(s: GameState, act: Act, price: number): HTMLElement | string {
+  const p = s.players[s.turn];
+  if (p.cash >= price || s.mode !== 'normal') return ''; // append に渡すので空文字
+  const map = getMap(s.mapId);
+  return h('div', { class: 'raise' },
+    h('p', {}, h('b', {}, `現金が ${g(price - p.cash)} 足りません。`), '株を売ると買えます（売るたびに株価は少し下がります）。'),
+    h('div', { class: 'btns' }, map.streets.map((st, i) => {
+      if (p.shares[i] <= 0) return null;
+      const q = sellQuote(s, i, 1);
+      return h('button', { class: 'btn sm sell', onclick: () => act({ type: 'sellStock', street: i, lots: 1 }) },
+        h('span', { class: 'chip', style: { background: st.color } }), `${st.name} 10 株を売る（+${g(q.gain)}）`);
+    })));
+}
+
 export function renderActions(s: GameState, act: Act, busy: boolean, mySeat = 0): HTMLElement {
   const map = getMap(s.mapId);
   const p = s.players[s.turn];
@@ -126,11 +141,13 @@ export function renderActions(s: GameState, act: Act, busy: boolean, mySeat = 0)
       case 'buyShop':
         box.append(h('h2', {}, `${sq.name}（空き店舗）`),
           h('p', {}, `${map.streets[sq.street!]?.name ?? ''}・価格 ${g(pr.value)}。買うと、ほかの人が止まったとき利用料が入ります。`),
+          raiseCash(s, act, pr.value),
           h('div', { class: 'btns' }, btn(`${g(pr.value)} で買う`, { type: 'buyShop' }, 'primary', p.cash < pr.value), btn('見送る', { type: 'skip' })));
         break;
       case 'buyLot':
         box.append(h('h2', {}, '空き地'),
           h('p', {}, `${g(pr.value)} で施設を建てられます。屋台村：利用料 40G＋自分のお店 1 軒につき 15G。両替所：止まった人は、その番に株を買える小さな銀行（両替所の利用料 30G）。`),
+          raiseCash(s, act, pr.value),
           h('div', { class: 'btns' },
             btn('屋台村を建てる', { type: 'buyLot', facility: 'yatai' }, 'primary', p.cash < pr.value),
             btn('両替所を建てる', { type: 'buyLot', facility: 'ryogae' }, 'primary', p.cash < pr.value),
