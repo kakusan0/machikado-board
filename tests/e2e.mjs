@@ -113,8 +113,11 @@ for (const [label, viewport] of [['PC', { width: 1280, height: 900 }], ['スマ�
     // サイコロを振ると、到着マスに印が出る（止まったあとは自分のコマがいるマス）
     await page.waitForSelector('.actions button:has-text("サイコロを振る")', { timeout: 90_000 });
     await page.getByRole('button', { name: 'サイコロを振る' }).click();
-    await page.waitForSelector('.sq.dest', { timeout: 5000 });
-    assert(await page.locator('.sq.dest').count() === 1, '到着マスの印が 1 つでない');
+    // 分かれ道の上から振ったときは、すぐ方向を選ぶ場面になる（到着マスは選んだあとに決まる）
+    await page.waitForSelector('.sq.dest, .actions .dirs button', { timeout: 10000 });
+    if (await page.locator('.actions .dirs button').count() === 0) {
+      assert(await page.locator('.sq.dest').count() === 1, '到着マスの印が 1 つでない');
+    }
     for (let k = 0; k < 20; k++) {
       await page.waitForTimeout(400);
       const dirs = page.locator('.actions .dirs button');
