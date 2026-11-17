@@ -121,6 +121,17 @@ await step('株式市場タブ：株を買える場面で自動で開き、行�
   assert(blink === 3, `あさひ通り（3 軒）が点滅しない（${blink}）`);
   await page.locator('.stocks.wide tbody tr').nth(0).click();
   assert(await page.locator('.sq.blink').count() === 0, 'もう一度押しても点滅が止まらない');
+  // マップのお店を押すと、その通りの情報が株式市場の表より上に出て、通りが点滅する
+  await page.locator('.layout.market .sq[aria-label="パン工房"]').click();
+  await page.waitForSelector('.street-info');
+  const shopRows = await page.locator('.street-info .shops tbody tr').count();
+  assert(shopRows === 3, `あさひ通りのお店の一覧が 3 行でない（${shopRows}）`);
+  const above = await page.evaluate(() => document.querySelector('.street-info').getBoundingClientRect().top
+    < document.querySelector('.stocks.wide').getBoundingClientRect().top);
+  assert(above, '通りの情報が株式市場の表より上にない');
+  assert(await page.locator('.sq.blink').count() === 3, 'マップで押した通りが点滅しない');
+  await page.getByRole('button', { name: '選択を外す' }).click();
+  assert(await page.locator('.street-info').count() === 0, '選択を外しても通りの情報が消えない');
   await page.locator('.actions button', { hasText: 'ターンを終える' }).click();
   await page.waitForSelector('.actions button:has-text("サイコロを振る")', { timeout: 90_000 });
   assert(await page.locator('.board3d').count() === 1, '盤面（3D）に戻らない');

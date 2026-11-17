@@ -7,7 +7,7 @@ import { OnlineClient, createRoom, findMatch, savedSession, type RoomView } from
 import { renderBoard, type BoardView } from './ui/board2d';
 import { createBoard3D, DETAIL_NAMES, DICE_MS, type Board3D, type Detail } from './ui/board3d';
 import { h } from './ui/dom';
-import { renderActions, renderInfo, renderLog, renderPlayers, renderStocks } from './ui/panels';
+import { renderActions, renderInfo, renderLog, renderPlayers, renderStocks, renderStreetInfo } from './ui/panels';
 
 const SAVE_KEY = 'machikado-board/save-v1';
 const SETTINGS_KEY = 'machikado-board/settings-v1';
@@ -54,6 +54,7 @@ const muted = new Set<number>(load<number[]>(MUTE_KEY) ?? []);
 let tab: 'board' | 'market' = 'board';
 let autoKey = ''; // 自動で開いた「買える場面」の目印
 let pickStreet: number | null = null; // 株式市場で選んだ通り（2D の盤面で点滅）
+let scrollToPick = false; // 選んだ通りの情報まで画面を動かす
 
 function get3d(): Board3D | null {
   if (no3d) return null;
@@ -256,6 +257,15 @@ function render() {
         renderLog(s))));
   app.replaceChildren(view);
   updateTimers();
+  if (scrollToPick) {
+    scrollToPick = false;
+    // 選んだ通りの情報が画面の外なら、見える位置まで動かす
+    const el = document.querySelector('.street-info, .layout.market .info');
+    if (el) {
+      const r = el.getBoundingClientRect();
+      if (r.top < 0 || r.bottom > window.innerHeight) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }
 }
 
 // オンライン中：残り時間・定型メッセージ・ミュート
@@ -293,16 +303,34 @@ function renderTabs(s: GameState): HTMLElement | null {
 // 株式市場タブ：左に 2D の盤面（選んだ通りが点滅）、右に操作と株式市場
 function renderMarket(s: GameState): HTMLElement {
   const me = mySeat();
-  const v: BoardView = { selected, highlightStreet: pickStreet, onSelect: (sq) => { selected = selected === sq ? null : sq; render(); } };
+  const map = getMap(s.mapId);
+  // マップのお店を押したら、その通りを選ぶ（表の行も黄色くなり、通りのマスが点滅）
+  const v: BoardView = { selected, highlightStreet: pickStreet, onSelect: (sq) => {
+    const q = map.squares[sq];
+    if (q.kind === 'shop') {
+      const again = selected === sq;
+      selected = again ? null : sq;
+      pickStreet = again ? null : q.street!;
+    } else {
+      selected = selected === sq ? null : sq;
+    }
+    scrollToPick = true;
+    render();
+  } };
+  const pickedNonShop = selected != null && map.squares[selected].kind !== 'shop';
   return h('main', { class: 'layout market' },
     h('div', { class: 'board-wrap' }, renderBoard(s, v)),
     h('div', { class: 'side' },
       renderActions(s, act, busy, me),
+      // 選んだ通りの情報は、株式市場の表より上に出す
+      pickStreet != null
+        ? renderStreetInfo(s, act, busy, me, pickStreet, selected, () => { pickStreet = null; selected = null; render(); })
+        : null,
+      pickedNonShop ? renderInfo(s, selected) : null,
       renderStocks(s, act, busy, me, {
         wide: true, highlight: pickStreet,
-        onPick: (st) => { pickStreet = pickStreet === st ? null : st; render(); },
+        onPick: (st) => { pickStreet = pickStreet === st ? null : st; selected = null; scrollToPick = true; render(); },
       }),
-      renderInfo(s, selected),
       renderPlayers(s, { you: online ? me : undefined })));
 }
 

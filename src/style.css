@@ -235,3 +235,23 @@ legend { font-weight: 900; margin-bottom: 6px; }
   .stocks.wide .grid2 .btn { min-width: 0; }
   .tabs { padding: 0 12px; }
 }
+
+/* 株式市場タブ：選んだ通りの情報 */
+.street-info { border: 2px solid var(--street); box-shadow: 0 0 0 3px #F2C23055; }
+.street-info .head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.street-info .head h2 { margin: 0; }
+.street-info .chip { width: 14px; height: 14px; border-radius: 4px; }
+.street-info .mono-tag { font-size: 12px; font-weight: 900; background: #FFF3C4; color: #8A5A00; border-radius: 99px; padding: 2px 8px; }
+.street-info .clear { margin-left: auto; }
+.street-info .facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 6px 12px; margin: 10px 0 4px; }
+.street-info .facts div { background: var(--soft); border-radius: 10px; padding: 6px 10px; }
+.street-info dt { font-size: 11px; color: var(--sub); }
+.street-info dd { margin: 0; font-weight: 900; font-variant-numeric: tabular-nums; }
+.street-info dd small { font-weight: 500; color: var(--sub); }
+.street-info dd.up { color: var(--up); } .street-info dd.down { color: var(--down); }
+.street-info .shops { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 10px; }
+.street-info .shops th { text-align: left; color: var(--sub); font-size: 12px; padding: 4px; border-bottom: 1px solid var(--line); }
+.street-info .shops td { padding: 6px 4px; border-bottom: 1px solid var(--soft); }
+.street-info .shops .num { text-align: right; font-variant-numeric: tabular-nums; }
+.street-info .shops tr.picked td { background: #FFF3C4; color: #1B2340; }
+.street-info .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; }

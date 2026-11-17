@@ -141,26 +141,67 @@ export interface StockOptions {
   onPick?: (street: number) => void; // 行を押したとき
 }
 
-export function renderStocks(s: GameState, act: Act, busy: boolean, mySeat = 0, o: StockOptions = {}): HTMLElement | null {
-  if (s.mode !== 'normal') return null;
-  const map = getMap(s.mapId);
+// 1 つの通りの「買う」「売る」ボタン（lots は 10 株の単位の数）
+function tradeButtons(s: GameState, act: Act, busy: boolean, mySeat: number, i: number, lots: number): HTMLElement[] {
   const p = s.players[s.turn];
+  const me = s.players[mySeat] ?? p;
   const mine = s.turn === mySeat && !busy;
   const canBuy = mine && canBuyStock(s);
   const canSell = mine && canSellStock(s);
-  const me = s.players[mySeat] ?? p;
+  const buy = buyCost(s, i, lots);
+  const sell = me.shares[i] >= lots * STOCK_LOT ? sellQuote(s, i, lots) : null;
+  return [
+    h('button', { class: 'btn sm', disabled: !canBuy || p.cash < buy.cost || p.shares[i] + lots * STOCK_LOT > MAX_SHARES,
+      title: `${lots * STOCK_LOT} 株 ${g(buy.cost)}${buy.fee ? `（手数料 ${g(buy.fee)} を含む）` : ''}`,
+      onclick: () => act({ type: 'buyStock', street: i, lots }) }, lots === 1 ? '買う' : `買う×${lots * STOCK_LOT}`),
+    h('button', { class: 'btn sm', disabled: !canSell || !sell,
+      title: sell ? `${lots * STOCK_LOT} 株 ${g(sell.gain)}` : '', onclick: () => act({ type: 'sellStock', street: i, lots }) }, lots === 1 ? '売る' : `売る×${lots * STOCK_LOT}`),
+  ];
+}
+
+// 株式市場タブ：選んだ通り（レーン）の情報。株の売り買いと、通りのお店の一覧
+export function renderStreetInfo(s: GameState, act: Act, busy: boolean, mySeat: number, street: number,
+  selectedSq: number | null, onClear: () => void): HTMLElement {
+  const map = getMap(s.mapId);
+  const st = map.streets[street];
+  const me = s.players[mySeat];
+  const shops = map.squares.filter((q) => q.kind === 'shop' && q.street === street);
+  const owners = new Set(shops.map((q) => s.props[q.id]?.owner));
+  const monoOwner = owners.size === 1 ? [...owners][0] : null;
+  const top = topHolder(s, street);
+  const buy = buyCost(s, street, 1);
+  return h('section', { class: 'panel street-info', 'aria-label': `${st.name}の情報`, style: { '--street': st.color } },
+    h('div', { class: 'head' },
+      h('span', { class: 'chip', style: { background: st.color } }),
+      h('h2', {}, st.name),
+      monoOwner != null ? h('span', { class: 'mono-tag' }, `♛ ${s.players[monoOwner].name}が独占中`) : null,
+      h('button', { class: 'btn sm clear', onclick: onClear }, '選択を外す')),
+    h('dl', { class: 'facts' },
+      h('div', {}, h('dt', {}, '株価'), h('dd', {}, g(stockPrice(s, street)))),
+      h('div', {}, h('dt', {}, '需給'), h('dd', { class: s.demand[street] > 1.005 ? 'up' : s.demand[street] < 0.995 ? 'down' : '' }, `×${s.demand[street].toFixed(2)}`)),
+      h('div', {}, h('dt', {}, '10 株の代金'), h('dd', {}, g(buy.cost), buy.fee ? h('small', {}, `（手数料 ${g(buy.fee)}）`) : null)),
+      h('div', {}, h('dt', {}, 'あなたの持ち株'), h('dd', {}, `${me.shares[street]} 株`)),
+      h('div', {}, h('dt', {}, '筆頭株主'), h('dd', {}, top != null ? s.players[top].name : 'なし'))),
+    h('div', { class: 'btns' }, tradeButtons(s, act, busy, mySeat, street, 1), tradeButtons(s, act, busy, mySeat, street, 5)),
+    h('table', { class: 'shops' },
+      h('thead', {}, h('tr', {}, h('th', {}, 'お店'), h('th', {}, '持ち主'), h('th', {}, '価値'), h('th', {}, '利用料'))),
+      h('tbody', {}, shops.map((q) => {
+        const pr = s.props[q.id]!;
+        const owner = pr.owner != null ? s.players[pr.owner] : null;
+        return h('tr', { class: selectedSq === q.id ? 'picked' : '' },
+          h('td', {}, q.name),
+          h('td', {}, owner ? [h('span', { class: 'dot', style: { background: owner.color } }), owner.name] : '空き店舗'),
+          h('td', { class: 'num' }, g(pr.value)),
+          h('td', { class: 'num' }, !owner ? '―' : owner.closed ? '休業' : g(fee(s, q.id))));
+      }))));
+}
+
+export function renderStocks(s: GameState, act: Act, busy: boolean, mySeat = 0, o: StockOptions = {}): HTMLElement | null {
+  if (s.mode !== 'normal') return null;
+  const map = getMap(s.mapId);
+  const me = s.players[mySeat] ?? s.players[s.turn];
   const shops = (i: number) => map.squares.filter((q) => q.kind === 'shop' && q.street === i);
-  const trade = (i: number, lots: number) => {
-    const buy = buyCost(s, i, lots);
-    const sell = me.shares[i] >= lots * STOCK_LOT ? sellQuote(s, i, lots) : null;
-    return [
-      h('button', { class: 'btn sm', disabled: !canBuy || p.cash < buy.cost || p.shares[i] + lots * STOCK_LOT > MAX_SHARES,
-        title: `${lots * STOCK_LOT} 株 ${g(buy.cost)}${buy.fee ? `（手数料 ${g(buy.fee)} を含む）` : ''}`,
-        onclick: () => act({ type: 'buyStock', street: i, lots }) }, lots === 1 ? '買う' : `買う×${lots * STOCK_LOT}`),
-      h('button', { class: 'btn sm', disabled: !canSell || !sell,
-        title: sell ? `${lots * STOCK_LOT} 株 ${g(sell.gain)}` : '', onclick: () => act({ type: 'sellStock', street: i, lots }) }, lots === 1 ? '売る' : `売る×${lots * STOCK_LOT}`),
-    ];
-  };
+  const trade = (i: number, lots: number) => tradeButtons(s, act, busy, mySeat, i, lots);
   const head = o.wide
     ? ['通り', '株価', '需給', '10株の代金', 'お店', '持ち株', '']
     : ['通り', '株価', '需給', 'あなた', ''];
