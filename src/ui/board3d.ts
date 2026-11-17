@@ -377,6 +377,19 @@ export function createBoard3D(initial: Detail): Board3D | null {
       });
     }
     el.dataset.choices = String(choiceSpots.length);
+    // サイコロで止まる候補：床を青く光らせ、上に目の数の札（分かれ道の札が出ているマスには出さない）
+    let lands = 0;
+    for (const [sq, label] of v.landing ?? []) {
+      const c = squareCenter(s, sq);
+      overlay.push({ mesh: M.plane, p: [c[0], 0.078, c[2]], s: [0.96, 1, 0.96], r: 0, c: T.rgb('#2F5BD3'), tex: r.white, uvs: [1, 1], alpha: 0.28 + Math.sin(t / 300) * 0.1, flat: 1 });
+      if (choiceSpots.some((x) => x.sq === sq)) continue;
+      const text = label.replace('🎲', '');
+      const sc = Math.min(1.7, Math.max(1, 640 / Math.max(1, canvas.clientWidth)));
+      labels.push({ mesh: M.card, p: [c[0], labelHeight(s, sq) - 0.15, c[2]], s: [0.56 * sc, 0.28 * sc, 1], r: cam.yaw, c: [1, 1, 1],
+        tex: r.tex(`sign:land:${text}`, () => T.landLabel(text), false), uvs: [1, 1], flat: 0.4, onTop: true });
+      lands++;
+    }
+    el.dataset.landing = String(lands);
     // 分かれ道で選べるマス
     for (const c0 of v.choices ?? []) {
       const c = squareCenter(s, c0);

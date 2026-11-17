@@ -227,6 +227,24 @@ export function forwardOptions(m: GameMap, pos: number, prev: number | null): nu
   return opts.length ? opts : m.links[pos];
 }
 
+// ちょうど n 歩進んで止まる可能性のあるマス（分かれ道はすべての方向を数える。後ろへは戻らない）
+export function landingAfter(m: GameMap, pos: number, prev: number | null, n: number): Set<number> {
+  let now: [number, number | null][] = [[pos, prev]];
+  for (let i = 0; i < n; i++) {
+    const next = new Map<string, [number, number | null]>();
+    for (const [p, q] of now) for (const w of forwardOptions(m, p, q)) next.set(`${w}:${p}`, [w, p]);
+    now = [...next.values()];
+  }
+  return new Set(now.map(([p]) => p));
+}
+
+// サイコロの目（1〜6）ごとに止まる可能性のあるマス：マス → 目の一覧
+export function landingByDice(m: GameMap, pos: number, prev: number | null): Map<number, number[]> {
+  const out = new Map<number, number[]>();
+  for (let d = 1; d <= 6; d++) for (const sq of landingAfter(m, pos, prev, d)) out.set(sq, [...(out.get(sq) ?? []), d]);
+  return out;
+}
+
 // 2 マスの位置関係から矢印
 export function arrow(m: GameMap, from: number, to: number): string {
   const a = m.squares[from], b = m.squares[to];

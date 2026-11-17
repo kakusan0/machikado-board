@@ -1,6 +1,6 @@
 import './style.css';
 import { decide } from './game/ai';
-import { MAPS, getMap } from './game/maps';
+import { MAPS, getMap, landingAfter, landingByDice } from './game/maps';
 import type { Action, CpuLevel, GameState, Mode } from './game/state';
 import { apply, canBuyStock, newGame } from './game/turn';
 import { OnlineClient, createRoom, findMatch, savedSession, type RoomView } from './net/online';
@@ -321,7 +321,7 @@ function renderMarket(s: GameState): HTMLElement {
   const me = mySeat();
   const map = getMap(s.mapId);
   // マップのお店を押したら、その通りを選ぶ（表の行も黄色くなり、通りのマスが点滅）
-  const v: BoardView = { selected, highlightStreet: pickStreet, me: mySeat(), onSelect: (sq) => {
+  const v: BoardView = { selected, highlightStreet: pickStreet, me: mySeat(), landing: landingFor(s), onSelect: (sq) => {
     const q = map.squares[sq];
     if (q.kind === 'shop') {
       const again = selected === sq;
@@ -349,10 +349,28 @@ function renderMarket(s: GameState): HTMLElement {
       })));
 }
 
+// 止まる候補：自分の番でサイコロを振る前は目ごと（🎲3 など）、分かれ道では選んだ先で止まるマス
+function landingFor(s: GameState): Map<number, string> | undefined {
+  if (s.turn !== mySeat() || busy || s.phase === 'over') return undefined;
+  const map = getMap(s.mapId);
+  const p = s.players[s.turn];
+  if (s.phase === 'roll') {
+    const out = new Map<number, string>();
+    for (const [sq, ds] of landingByDice(map, p.pos, p.prev)) out.set(sq, `🎲${ds.join('・')}`);
+    return out;
+  }
+  if (s.pending?.kind === 'direction' && s.moving) {
+    const out = new Map<number, string>();
+    for (const o of s.pending.options) for (const sq of landingAfter(map, o, p.pos, s.moving.left - 1)) out.set(sq, '止まる');
+    return out;
+  }
+  return undefined;
+}
+
 function boardEl(s: GameState): HTMLElement {
   const human = s.turn === mySeat() && !busy;
   const choices = human && s.pending?.kind === 'direction' ? s.pending.options : undefined;
-  const v: BoardView = { tokens, selected, choices, me: mySeat(), onSelect: (sq) => {
+  const v: BoardView = { tokens, selected, choices, me: mySeat(), landing: landingFor(s), onSelect: (sq) => {
     if (choices?.includes(sq)) { void act({ type: 'move', to: sq }); return; }
     selected = selected === sq ? null : sq; render();
   } };

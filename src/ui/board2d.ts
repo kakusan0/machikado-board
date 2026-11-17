@@ -15,6 +15,7 @@ export interface BoardView {
   choices?: number[]; // 分かれ道で選べるマス
   highlightStreet?: number | null; // 点滅させる通り（株式市場で選んだ通り）
   me?: number; // 自分の席（自分のコマを目立たせる）
+  landing?: Map<number, string>; // 止まる候補のマス → 表示する文字（サイコロの目など）
   message?: string;
 }
 
@@ -55,7 +56,7 @@ export function renderBoard(s: GameState, v: BoardView): HTMLElement {
     const mono = s.mode === 'normal' && owner && sq.kind === 'shop' && isMonopoly(s, sq.street!, owner.id);
     const fresh = mono && s.monopoly?.street === sq.street; // この番に独占したばかり
     const cell = h('button', {
-      class: `sq k-${sq.kind}${owner ? ' owned' : ''}${mono ? ' mono' : ''}${fresh ? ' fresh' : ''}${v.selected === sq.id ? ' sel' : ''}${choices.has(sq.id) ? ' choice' : ''}${v.highlightStreet != null && sq.street === v.highlightStreet ? ' blink' : ''}`,
+      class: `sq k-${sq.kind}${owner ? ' owned' : ''}${mono ? ' mono' : ''}${fresh ? ' fresh' : ''}${v.selected === sq.id ? ' sel' : ''}${choices.has(sq.id) ? ' choice' : ''}${v.landing?.has(sq.id) ? ' landing' : ''}${v.highlightStreet != null && sq.street === v.highlightStreet ? ' blink' : ''}`,
       style: {
         gridColumn: String(x + 1), gridRow: String(y + 1),
         '--street': street?.color ?? 'transparent', '--owner': owner?.color ?? 'transparent',
@@ -75,6 +76,7 @@ export function renderBoard(s: GameState, v: BoardView): HTMLElement {
       title: `${owner.name}のお店・利用料 ${fee(s, sq.id)}G${mono ? '・通りを独占中' : ''}`,
     }, mono ? h('span', { class: 'crown', 'aria-label': '独占' }, '♛') : null, owner.closed ? '休業' : `${fee(s, sq.id).toLocaleString()}G`) : null,
     choices.has(sq.id) && s.pending?.kind === 'direction' ? h('span', { class: 'arrow' }, arrow(map, s.pending.sq, sq.id)) : null,
+    v.landing?.has(sq.id) ? h('span', { class: 'land', title: '止まる候補' }, v.landing.get(sq.id)!) : null,
     );
     board.append(cell);
   });

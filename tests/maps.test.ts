@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAPS, arrow, forwardOptions, parseMap, validateMap, validateMaps } from '../src/game/maps';
+import { MAPS, arrow, forwardOptions, landingAfter, landingByDice, parseMap, validateMap, validateMaps } from '../src/game/maps';
 
 // 正しい最小の盤（7×7・近道 1 本）を土台に、1 か所ずつ壊して確認する
 const OK = [
@@ -68,4 +68,26 @@ describe('マップの確認', () => {
   it('価格が 0 以下', () => expect(check(OK, { base: [0, 120, 140, 180, 220] })).toMatch('価格が正しくありません'));
   it('id の形式', () => expect(check(OK, { id: 'Bad Id' })).toMatch('id'));
   it('id の重なり', () => expect(validateMaps([MAPS[0], MAPS[0]])).toHaveLength(1));
+});
+
+describe('サイコロで止まる候補', () => {
+  const m = MAPS[0]; // ちいさな四つ角
+  it('はじめの銀行からは、1 の目で左右どちらにも止まりうる', () => {
+    const c = landingByDice(m, 0, null);
+    expect(c.get(1)).toEqual([1]);
+    expect(c.get(7)).toEqual([1]);
+  });
+  it('分かれ道の先は全部の方向を数え、後ろへは戻らない', () => {
+    // パン工房（1）から銀行（0）を背にして進む：2 → 3（分かれ道）→ 4 か 下
+    const c = landingByDice(m, 1, 0);
+    expect(c.get(2)).toEqual([1]);
+    expect(c.get(3)).toEqual([2]);
+    const after3 = [...c.entries()].filter(([, ds]) => ds.includes(3)).map(([sq]) => sq);
+    expect(after3).toHaveLength(2);
+    expect(c.has(0)).toBe(false); // 戻る方向の銀行には止まらない（6 歩以内では一周しない）
+  });
+  it('n 歩ちょうどで止まるマスの数', () => {
+    expect(landingAfter(m, 0, null, 0)).toEqual(new Set([0]));
+    expect(landingAfter(m, 0, null, 2).size).toBe(2);
+  });
 });

@@ -329,3 +329,18 @@ export function ring(color: string): Canvas {
   g.fillStyle = grd; g.beginPath(); g.arc(128, 128, 124, 0, Math.PI * 2); g.fill();
   return c;
 }
+
+// サイコロで止まる候補の札（左に小さなサイコロ、右に目の数か「止まる」）。512×256
+export function landLabel(text: string): Canvas {
+  const [c, g] = canvas(512, 256);
+  g.fillStyle = '#FFFFFF'; g.beginPath(); g.roundRect(4, 4, 504, 248, 56); g.fill();
+  g.fillStyle = '#2F5BD3'; g.beginPath(); g.roundRect(16, 16, 480, 224, 46); g.fill();
+  // サイコロの絵
+  g.fillStyle = '#FFFFFF'; g.beginPath(); g.roundRect(40, 58, 140, 140, 24); g.fill();
+  g.fillStyle = '#2F5BD3';
+  for (const [x, y] of [[75, 93], [145, 93], [110, 128], [75, 163], [145, 163]]) { g.beginPath(); g.arc(x, y, 13, 0, Math.PI * 2); g.fill(); }
+  g.fillStyle = '#FFFFFF'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  fitText(g, text, 280, 130);
+  g.fillText(text, 340, 136);
+  return c;
+}

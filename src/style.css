@@ -298,3 +298,9 @@ legend { font-weight: 900; margin-bottom: 6px; }
 .raise { background: var(--soft); border-radius: 12px; padding: 8px 12px; margin-top: 8px; }
 .raise p { margin: 0 0 6px !important; color: var(--ink) !important; }
 .raise .chip { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; }
+
+/* サイコロで止まる候補のマス */
+.sq.landing { border-style: dashed; border-color: var(--accent); }
+.sq .land { position: absolute; left: 3px; bottom: 3px; background: var(--accent); color: #fff; font-size: 10px; font-weight: 900; line-height: 1; padding: 3px 5px; border-radius: 6px; z-index: 2; letter-spacing: .02em; }
+@media (max-width: 600px) { .sq .land { font-size: 9px; padding: 2px 3px; } }
+.grid-10 .sq .land { font-size: 9px; padding: 2px 3px; }
