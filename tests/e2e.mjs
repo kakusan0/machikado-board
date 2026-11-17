@@ -259,6 +259,16 @@ await step('スマホ：横に払う（フリック）とタブが移る。縦�
   await ctx.close();
 });
 
+for (const [mapId, view] of [['cross', '3d'], ['twin', '2d'], ['hills', '3d']]) {
+  await step(`新しいマップ（${mapId}・${view.toUpperCase()}）：開いて 2 ターン遊べる`, async () => {
+    const { page, errors } = await newPage({ width: 1280, height: 900 }, { ...base, mapId, view });
+    await page.getByRole('button', { name: 'はじめる' }).click();
+    for (let i = 0; i < 2; i++) await playMyTurn(page);
+    assert(errors.length === 0, `エラー：${errors.join(' / ')}`);
+    await page.close();
+  });
+}
+
 await step('保存と再開：再読み込みで「つづきから」になり、同じ状態に戻る', async () => {
   const { page, errors } = await newPage({ width: 1280, height: 900 }, { ...base, mapId: 'harbor', view: '2d' });
   await page.getByRole('button', { name: 'はじめる' }).click();

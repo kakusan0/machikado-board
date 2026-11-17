@@ -222,7 +222,7 @@ describe('CPU だけで 100 試合', () => {
   it('例外・無限ループ・お金の矛盾がない', { timeout: 180_000 }, () => {
     const reasons: Record<string, number> = {};
     for (let g = 0; g < 100; g++) {
-      const mapId = MAPS[g % 3].id;
+      const mapId = MAPS[g % MAPS.length].id;
       const mode = g % 4 === 0 ? 'easy' : 'normal';
       const levels = (['easy', 'normal', 'hard'] as const);
       let s = newGame({
@@ -298,7 +298,7 @@ describe('CPU の強さ', () => {
     const wins: Record<string, number> = { easy: 0, normal: 0, hard: 0, fourth: 0 };
     for (let g = 0; g < 60; g++) {
       const order = [lv[g % 3], lv[(g + 1) % 3], lv[(g + 2) % 3], 'normal' as const];
-      let s = newGame({ mapId: MAPS[g % 3].id, mode: 'normal', seed: 7000 + g, maxRounds: 80,
+      let s = newGame({ mapId: MAPS[g % MAPS.length].id, mode: 'normal', seed: 7000 + g, maxRounds: 80,
         players: order.map((c, i) => ({ name: `P${i}`, cpu: c })) });
       while (s.phase !== 'over') s = apply(s, decide(s));
       wins[s.winner === 3 ? 'fourth' : s.players[s.winner!].cpu!] += 1;
