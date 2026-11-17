@@ -317,3 +317,15 @@ export function choiceLabel(name: string, sub: string, color: string): Canvas {
   g.fillStyle = 'rgba(255,255,255,.95)'; g.fillText(sub, 512, 188);
   return c;
 }
+
+// 自分のコマの足元の光る輪（真ん中は透明）
+export function ring(color: string): Canvas {
+  const [c, g] = canvas(256, 256);
+  const grd = g.createRadialGradient(128, 128, 60, 128, 128, 124);
+  grd.addColorStop(0, 'rgba(255,255,255,0)');
+  grd.addColorStop(0.55, color);
+  grd.addColorStop(0.75, '#FFFFFF');
+  grd.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grd; g.beginPath(); g.arc(128, 128, 124, 0, Math.PI * 2); g.fill();
+  return c;
+}

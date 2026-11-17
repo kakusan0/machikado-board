@@ -245,7 +245,7 @@ function render() {
         renderActions(s, act, busy, me),
         renderInfo(s, selected),
         renderPlayers(s, {
-          you: online ? me : undefined,
+          you: me,
           status: (pid) => {
             const seat = room?.seats[pid];
             if (!online || !seat || seat.cpu) return null;
@@ -305,7 +305,7 @@ function renderMarket(s: GameState): HTMLElement {
   const me = mySeat();
   const map = getMap(s.mapId);
   // マップのお店を押したら、その通りを選ぶ（表の行も黄色くなり、通りのマスが点滅）
-  const v: BoardView = { selected, highlightStreet: pickStreet, onSelect: (sq) => {
+  const v: BoardView = { selected, highlightStreet: pickStreet, me: mySeat(), onSelect: (sq) => {
     const q = map.squares[sq];
     if (q.kind === 'shop') {
       const again = selected === sq;
@@ -331,13 +331,13 @@ function renderMarket(s: GameState): HTMLElement {
         wide: true, highlight: pickStreet,
         onPick: (st) => { pickStreet = pickStreet === st ? null : st; selected = null; scrollToPick = true; render(); },
       }),
-      renderPlayers(s, { you: online ? me : undefined })));
+      renderPlayers(s, { you: me })));
 }
 
 function boardEl(s: GameState): HTMLElement {
   const human = s.turn === mySeat() && !busy;
   const choices = human && s.pending?.kind === 'direction' ? s.pending.options : undefined;
-  const v: BoardView = { tokens, selected, choices, onSelect: (sq) => {
+  const v: BoardView = { tokens, selected, choices, me: mySeat(), onSelect: (sq) => {
     if (choices?.includes(sq)) { void act({ type: 'move', to: sq }); return; }
     selected = selected === sq ? null : sq; render();
   } };

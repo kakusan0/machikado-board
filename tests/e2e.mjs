@@ -91,6 +91,9 @@ for (const [label, viewport] of [['PC', { width: 1280, height: 900 }], ['スマ�
       bought += r.bought; forks += r.forks;
     }
     assert(forks > 0, '分かれ道に一度も止まらなかった');
+    // 自分のコマは 1 つだけ目立たせて「あなた」と出る
+    assert(await page.locator('.token.me').count() === 1, '自分のコマの目印がない');
+    assert((await page.locator('.token.me').textContent()).includes('あなた'), '自分のコマに「あなた」がない');
     const owned = await page.locator('.sq.owned').count();
     assert(owned >= bought, `買ったお店が盤面に出ていない（${owned}/${bought}）`);
     // 持ち主のいるマスには、利用料のピンが立つ

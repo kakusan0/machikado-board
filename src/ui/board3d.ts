@@ -320,6 +320,7 @@ export function createBoard3D(initial: Detail): Board3D | null {
     const s = state!, v = view!;
     const out: SceneItem[] = [];
     const overlay: SceneItem[] = [];
+    const labels: SceneItem[] = []; // 矢印より手前に描くので、最後に足す
     // コマ（1 マスずつ跳ねて進む）
     const targets = tokenTargets(s, v);
     s.players.forEach((p, i) => {
@@ -333,10 +334,22 @@ export function createBoard3D(initial: Detail): Board3D | null {
       const bounce = i === s.turn && s.phase !== 'over' ? Math.abs(Math.sin(t / 260)) * 0.06 : 0;
       d.pos = [d.from[0] + (d.to[0] - d.from[0]) * e, 0.06 + hop + bounce, d.from[2] + (d.to[2] - d.from[2]) * e];
       const C = T.rgb(p.color);
-      out.push({ mesh: M.pawn, p: d.pos, s: [0.26, 0.5, 0.26], r: 0, c: C, tex: r.white, uvs: [1, 1], shadow: 0.5 });
-      out.push({ mesh: M.sphere, p: [d.pos[0], d.pos[1] + 0.36, d.pos[2]], s: [0.17, 0.17, 0.17], r: 0, c: T.rgb(p.color, 0.25), tex: r.white, uvs: [1, 1] });
+      const mine = v.me === i;
+      const k2 = mine ? 1.2 : 1; // 自分のコマは少し大きく
+      out.push({ mesh: M.pawn, p: d.pos, s: [0.26 * k2, 0.5 * k2, 0.26 * k2], r: 0, c: C, tex: r.white, uvs: [1, 1], shadow: 0.5 });
+      out.push({ mesh: M.sphere, p: [d.pos[0], d.pos[1] + 0.36 * k2, d.pos[2]], s: [0.17 * k2, 0.17 * k2, 0.17 * k2], r: 0, c: T.rgb(p.color, 0.25), tex: r.white, uvs: [1, 1] });
+      if (mine) {
+        // 自分のコマ：足元に光る輪、頭上に「あなた」の札（いつも手前に描く）
+        const pulse = 1 + Math.sin(t / 250) * 0.12;
+        overlay.push({ mesh: M.plane, p: [d.pos[0], 0.085, d.pos[2]], s: [0.62 * pulse, 1, 0.62 * pulse], r: 0, c: [1, 1, 1],
+          tex: r.tex(`ring:${p.color}`, () => T.ring(p.color), false), uvs: [1, 1], alpha: 0.95, flat: 1 });
+        const sc = Math.min(1.7, Math.max(1, 640 / Math.max(1, canvas.clientWidth)));
+        labels.push({ mesh: M.card, p: [d.pos[0], d.pos[1] + 0.68, d.pos[2]], s: [0.5 * sc, 0.25 * sc, 1], r: cam.yaw, c: [1, 1, 1],
+          tex: r.tex(`sign:pin:${p.color}:あなた:`, () => T.pinLabel('あなた', p.color), false), uvs: [1, 1], flat: 0.4, onTop: true });
+      }
       if (i === s.turn) {
-        overlay.push({ mesh: M.cone, p: [d.pos[0], 0.85 + Math.sin(t / 300) * 0.05, d.pos[2]], s: [0.12, -0.16, 0.12], r: t / 500, c: T.rgb('#E0A21B'), tex: r.white, uvs: [1, 1], flat: 0.6 });
+        const y = mine ? 1.12 : 0.85;
+        overlay.push({ mesh: M.cone, p: [d.pos[0], y + Math.sin(t / 300) * 0.05, d.pos[2]], s: [0.12, -0.16, 0.12], r: t / 500, c: T.rgb('#E0A21B'), tex: r.white, uvs: [1, 1], flat: 0.6 });
       }
     });
     // サイコロ：盤の隅から投げ、はねながら転がって、出た目を上にして止まる
@@ -344,7 +357,6 @@ export function createBoard3D(initial: Detail): Board3D | null {
       if (diceAnim.value !== s.dice) diceAnim = { value: s.dice, t0: t };
       out.push(...diceItems(t));
     } else diceAnim.value = 0;
-    const labels: SceneItem[] = []; // 矢印より手前に描くので、最後に足す
     // 分かれ道：選べるマスの家の上に、名前と状態の札（自分が選ぶときは緑、ほかの人のときは灰色）
     choiceSpots = [];
     if (s.pending?.kind === 'direction' && s.phase === 'decide') {

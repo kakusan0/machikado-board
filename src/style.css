@@ -255,3 +255,11 @@ legend { font-weight: 900; margin-bottom: 6px; }
 .street-info .shops .num { text-align: right; font-variant-numeric: tabular-nums; }
 .street-info .shops tr.picked td { background: #FFF3C4; color: #1B2340; }
 .street-info .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; }
+
+/* 自分のコマ（2D） */
+.token.me { position: relative; width: 30px; height: 30px; font-size: 13px; border-width: 3px; box-shadow: 0 0 0 3px var(--ink), 0 0 12px 3px #F2C230; z-index: 3; animation: mepulse 1.2s ease-in-out infinite alternate; }
+.token.me.now { outline: 3px solid var(--gold); }
+.token .me-tag { position: absolute; bottom: calc(100% + 3px); left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); font-size: 10px; font-weight: 900; line-height: 1; padding: 3px 6px; border-radius: 99px; white-space: nowrap; }
+@keyframes mepulse { from { box-shadow: 0 0 0 3px var(--ink), 0 0 6px 1px #F2C230; } to { box-shadow: 0 0 0 3px var(--ink), 0 0 16px 5px #F2C230; } }
+@media (prefers-reduced-motion: reduce) { .token.me { animation: none; } }
+@media (max-width: 600px) { .token.me { width: 22px; height: 22px; font-size: 10px; } .token .me-tag { font-size: 9px; padding: 2px 4px; } }

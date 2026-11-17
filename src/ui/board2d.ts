@@ -14,6 +14,7 @@ export interface BoardView {
   onSelect: (sq: number) => void;
   choices?: number[]; // 分かれ道で選べるマス
   highlightStreet?: number | null; // 点滅させる通り（株式市場で選んだ通り）
+  me?: number; // 自分の席（自分のコマを目立たせる）
   message?: string;
 }
 
@@ -84,14 +85,15 @@ export function renderBoard(s: GameState, v: BoardView): HTMLElement {
     if (p.bankrupt) return;
     const { x, y } = map.squares[pos[i]];
     const same = s.players.filter((q, j) => j < i && !q.bankrupt && pos[j] === pos[i]).length;
+    const mine = v.me === i;
     board.append(h('span', {
-      class: `token${i === s.turn ? ' now' : ''}`,
+      class: `token${i === s.turn ? ' now' : ''}${mine ? ' me' : ''}`,
       style: {
         gridColumn: String(x + 1), gridRow: String(y + 1), background: p.color,
         translate: `${-(same % 2) * 12}px ${-Math.floor(same / 2) * 12}px`,
       },
-      'aria-label': `${p.name} のコマ`,
-    }, p.name.slice(0, 1)));
+      'aria-label': `${p.name} のコマ${mine ? '（あなた）' : ''}`,
+    }, p.name.slice(0, 1), mine ? h('span', { class: 'me-tag' }, 'あなた') : null));
   });
 
   // 盤の上の帯（マップ名・サイコロ・カード）
