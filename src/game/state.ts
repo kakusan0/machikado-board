@@ -57,7 +57,8 @@ export type Pending =
   | { kind: 'invest'; sq: number }
   | { kind: 'buyout'; sq: number }
   | { kind: 'buyLot'; sq: number }
-  | { kind: 'direction'; sq: number; options: number[] };
+  | { kind: 'direction'; sq: number; options: number[] }
+  | { kind: 'bankStock'; sq: number }; // 銀行を通って給料をもらったので、その場で株を買える
 
 export type Phase = 'roll' | 'decide' | 'stock' | 'over';
 

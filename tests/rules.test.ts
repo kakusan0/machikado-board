@@ -317,12 +317,43 @@ describe('銀行を通過したときの給料', () => {
     }
     const cash = s.players[0].cash;
     const t = apply(s, { type: 'roll' });
-    expect(t.path).toContain(0); // 銀行を通った
-    expect(t.players[0].pos).not.toBe(0); // 止まってはいない
+    expect(t.path).toContain(0); // 銀行を通った（このあとまだ 1 マス残っている）
     expect(t.players[0].level).toBe(1);
     expect(t.salary).toEqual({ player: 0, amount: salary(1), level: 1 });
-    expect(t.players[0].cash).toBeGreaterThanOrEqual(cash + salary(1) - 300); // 止まったマスで利用料を払うことがある
     expect(t.players[0].stamps.every((x) => !x)).toBe(true);
+    // 給料をもらったので銀行で止まり、手数料なしで株を買える
+    expect(t.players[0].pos).toBe(0);
+    expect(t.pending).toEqual({ kind: 'bankStock', sq: 0 });
+    expect(t.players[0].cash).toBe(cash + salary(1));
+    const raw = buyQuote(t, 1, 2).cost;
+    const u = apply(t, { type: 'buyStock', street: 1, lots: 2 });
+    expect(t.players[0].cash - u.players[0].cash).toBe(raw);
+    expect(u.pending).toEqual({ kind: 'bankStock', sq: 0 }); // 続けて買える
+    const u2 = apply(u, { type: 'sellStock', street: 1, lots: 1 }); // 売ることもできる
+    expect(u2.players[0].shares[1]).toBe(10);
+    // 終えて進む：残りの 1 マスを進む
+    const v = apply(u2, { type: 'skip' });
+    expect(v.players[0].pos).not.toBe(0);
+    expect(v.path).toEqual([0, v.players[0].pos]);
+    expect(v.pending?.kind).not.toBe('bankStock');
+  });
+  it('かんたんモードでは株がないので、銀行で止まらずに進む', () => {
+    const m = getMap('corner');
+    let s = game('easy');
+    const p = s.players[0];
+    p.stamps = [true, true, true, true];
+    const before = m.links[0].find((v) => v !== 1)!;
+    p.pos = m.links[before].find((v) => v !== 0)!;
+    p.prev = m.links[p.pos].find((v) => v !== before)!;
+    for (let seed = 0; seed < 1000; seed++) {
+      const t = structuredClone(s);
+      t.rng = seed;
+      if (apply(t, { type: 'roll' }).dice === 3) { s = t; break; }
+    }
+    const t = apply(s, { type: 'roll' });
+    expect(t.players[0].level).toBe(1);
+    expect(t.pending?.kind).not.toBe('bankStock');
+    expect(t.players[0].pos).not.toBe(0);
   });
   it('スタンプが足りなければ給料は入らない', () => {
     let s = game();

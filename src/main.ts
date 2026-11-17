@@ -65,7 +65,9 @@ const delay = (ms: number) => new Promise((r) => { timer = window.setTimeout(r, 
 
 // サイコロとコマの移動を見せる（1 人用・オンライン共通）
 async function present(prev: GameState, next: GameState, type: Action['type']) {
-  if (type === 'roll' || type === 'move') {
+  // 銀行での株の売り買いを終えて進むときも、コマの移動を見せる
+  const resumes = type === 'skip' && prev.pending?.kind === 'bankStock';
+  if (type === 'roll' || type === 'move' || resumes) {
     busy = true;
     state = { ...prev, dice: next.dice, pending: null };
     if (type === 'roll' && use3d()) {

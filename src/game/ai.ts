@@ -91,7 +91,8 @@ export function decide(s: GameState): Action {
     }
   }
 
-  if (s.phase === 'stock') {
+  // ターンの終わり、または銀行で給料をもらって止まっているとき：株の売り買い
+  if (s.phase === 'stock' || s.pending?.kind === 'bankStock') {
     // 足りないときは売る
     if (p.cash < reserve) {
       const st0 = p.shares.findIndex((n) => n > 0);
@@ -123,7 +124,7 @@ export function decide(s: GameState): Action {
         }
       }
     }
-    return { type: 'endTurn' };
+    return s.phase === 'stock' ? { type: 'endTurn' } : { type: 'skip' };
   }
   return { type: 'skip' };
 }

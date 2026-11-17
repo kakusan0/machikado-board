@@ -6,7 +6,7 @@ import {
 } from '../game/rules';
 import type { Action, GameState } from '../game/state';
 import { FACILITY_NAMES, STAMP_NAMES } from '../game/state';
-import { canBuyStock, investOptions } from '../game/turn';
+import { canBuyStock, canSellStock, investOptions } from '../game/turn';
 import { STAMP_ICONS } from './board2d';
 import { h, g } from './dom';
 
@@ -68,6 +68,13 @@ export function renderActions(s: GameState, act: Act, busy: boolean, mySeat = 0)
     const sq = map.squares[s.pending.sq];
     const pr = s.props[sq.id]!;
     switch (s.pending.kind) {
+      case 'bankStock': {
+        const sal = s.salary;
+        box.append(h('h2', {}, '銀行で株を買えます'),
+          h('p', {}, `${sal ? `給料 ${g(sal.amount)} をもらいました。` : ''}銀行にいる間は、手数料なしで株を売り買いできます（下の株式市場）。終わったら、あと ${s.moving?.left ?? 0} マス進みます。`),
+          h('div', { class: 'btns' }, btn('株の売り買いを終えて進む', { type: 'skip' }, 'primary big')));
+        break;
+      }
       case 'direction': {
         const pend = s.pending;
         box.append(h('h2', {}, '分かれ道'),
@@ -134,7 +141,7 @@ export function renderStocks(s: GameState, act: Act, busy: boolean, mySeat = 0):
   const p = s.players[s.turn];
   const mine = s.turn === mySeat && !busy;
   const canBuy = mine && canBuyStock(s);
-  const canSell = mine && (s.phase === 'stock' || s.phase === 'roll');
+  const canSell = mine && canSellStock(s);
   const me = s.players[mySeat] ?? p;
   return h('section', { class: 'panel stocks', 'aria-label': '株式市場' },
     h('h2', {}, '株式市場'),

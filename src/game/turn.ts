@@ -86,7 +86,7 @@ export function apply(prev: GameState, a: Action): GameState {
       s.path = [p.pos];
       stepTo(s, a.to);
       s.moving!.left -= 1;
-      if (!isOverNow(s)) continueMove(s);
+      if (!isOverNow(s) && !bankPause(s)) continueMove(s);
       break;
     }
     case 'buyShop': {
@@ -143,12 +143,21 @@ export function apply(prev: GameState, a: Action): GameState {
     }
     case 'skip': {
       need(s.phase === 'decide', a);
+      if (s.pending?.kind === 'bankStock') {
+        // 銀行での株の売り買いを終えて、残りの歩数を進む
+        need(!!s.moving, a);
+        s.pending = null;
+        s.path = [p.pos];
+        continueMove(s);
+        break;
+      }
+      need(s.pending?.kind !== 'direction', a);
       toStock(s);
       break;
     }
     case 'buyStock': {
       // 株はターンの終わりにいつでも買える。銀行・両替所に寄っていない番は手数料 10%
-      need(s.phase === 'stock' && s.mode === 'normal', a);
+      need((s.phase === 'stock' || (s.phase === 'decide' && s.pending?.kind === 'bankStock')) && s.mode === 'normal', a);
       need(Number.isInteger(a.lots) && a.lots > 0 && a.street >= 0 && a.street < s.demand.length, a);
       need(p.shares[a.street] + a.lots * STOCK_LOT <= MAX_SHARES, a);
       const q = buyCost(s, a.street, a.lots);
@@ -160,7 +169,7 @@ export function apply(prev: GameState, a: Action): GameState {
       break;
     }
     case 'sellStock': {
-      need((s.phase === 'stock' || s.phase === 'roll') && s.mode === 'normal', a);
+      need((s.phase === 'stock' || s.phase === 'roll' || (s.phase === 'decide' && s.pending?.kind === 'bankStock')) && s.mode === 'normal', a);
       need(Number.isInteger(a.lots) && a.lots > 0 && p.shares[a.street] >= a.lots * STOCK_LOT, a);
       const q = sellQuote(s, a.street, a.lots);
       p.cash += q.gain;
@@ -207,10 +216,21 @@ function continueMove(s: GameState) {
     }
     stepTo(s, opts[0]);
     m.left -= 1;
-    if (isOverNow(s)) return;
+    if (isOverNow(s) || bankPause(s)) return;
   }
   s.moving = null;
   if (m.depth >= 0) land(s, p.pos, m.depth);
+}
+
+// 銀行を通って給料をもらったら、そこで止まって株を売り買いできる（ふつうモード。止まったときは最後に買える）
+function bankPause(s: GameState): boolean {
+  const map = getMap(s.mapId);
+  const p = cur(s);
+  if (s.mode !== 'normal' || !s.moving || s.moving.left <= 0) return false;
+  if (map.squares[p.pos].kind !== 'bank' || s.salary?.player !== p.id) return false;
+  s.phase = 'decide';
+  s.pending = { kind: 'bankStock', sq: p.pos };
+  return true;
 }
 
 function stepTo(s: GameState, to: number) {
@@ -508,7 +528,10 @@ export function investOptions(s: GameState): { sq: number; room: number }[] {
     .filter((x) => x.room > 0);
 }
 
-export const canBuyStock = (s: GameState) => s.phase === 'stock' && s.mode === 'normal';
+export const canBuyStock = (s: GameState) =>
+  s.mode === 'normal' && (s.phase === 'stock' || (s.phase === 'decide' && s.pending?.kind === 'bankStock'));
+export const canSellStock = (s: GameState) =>
+  s.mode === 'normal' && (s.phase === 'stock' || s.phase === 'roll' || (s.phase === 'decide' && s.pending?.kind === 'bankStock'));
 
 function isOver(s: GameState) {
   return s.phase === 'over';

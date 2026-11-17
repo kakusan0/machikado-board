@@ -189,7 +189,7 @@ export function animationMs(room: Room, fast = false): number {
   if (fast) return 5;
   const s = room.game;
   if (!s || !room.last) return 300;
-  const moved = room.last.type === 'roll' || room.last.type === 'move';
+  const moved = room.last.type === 'roll' || room.last.type === 'move' || room.last.type === 'skip';
   return 500 + (room.last.type === 'roll' ? 1450 : 0) + (moved ? Math.max(0, s.path.length - 1) * 170 : 0);
 }
 
