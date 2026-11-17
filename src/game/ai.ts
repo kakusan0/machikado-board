@@ -2,7 +2,7 @@
 import { forwardOptions, getMap } from './maps';
 import { hash01 } from './rng';
 import {
-  BUYOUT_MULT, MAX_SHARES, STOCK_LOT, buyQuote, fee, isMonopoly, ownedInStreet, stockPrice, streetSquares,
+  BUYOUT_MULT, MAX_SHARES, STOCK_LOT, buyCost, fee, stockCommission, isMonopoly, ownedInStreet, stockPrice, streetSquares,
 } from './rules';
 import type { Action, CpuLevel, GameState } from './state';
 import { canBuyStock, investOptions } from './turn';
@@ -102,21 +102,24 @@ export function decide(s: GameState): Action {
       const k = p.shares.findIndex((n, i) => n > 0 && s.demand[i] > 1.3 && !isMonopoly(s, i, p.id));
       if (k >= 0) return { type: 'sellStock', street: k, lots: Math.min(p.shares[k] / STOCK_LOT, 5) };
     }
-    if (canBuyStock(s)) {
-      const budget = (p.cash - reserve * 2) * st.stockShare;
+    // 手数料がかかる番は控えめに：やさしい・ふつうはたまに、つよいは自分のお店が 2 軒以上ある通りだけ
+    const pricey = stockCommission(s) > 0;
+    if (canBuyStock(s) && (!pricey || r(6) < (level === 'hard' ? 1 : 0.3))) {
+      const budget = (p.cash - reserve * 2) * st.stockShare * (pricey ? 0.5 : 1);
       if (budget > 0 && r(5) > st.noise) {
         // 自分のお店が多い通り（独占なら最優先）を選ぶ。やさしいはランダム
         let best = -1;
         let score = -Infinity;
         for (let k = 0; k < map.streets.length; k++) {
           if (p.shares[k] >= MAX_SHARES) continue;
+          if (pricey && level === 'hard' && ownedInStreet(s, k, p.id) < 2) continue;
           const sc = level === 'easy' ? r(10 + k)
             : ownedInStreet(s, k, p.id) * 2 + (isMonopoly(s, k, p.id) ? 4 : 0) - s.demand[k] + streetHeat(s, k) / 100;
           if (sc > score) { score = sc; best = k; }
         }
         if (best >= 0) {
           const lots = Math.min(Math.floor(budget / (stockPrice(s, best) * STOCK_LOT)), (MAX_SHARES - p.shares[best]) / STOCK_LOT, 10);
-          if (lots >= 1 && buyQuote(s, best, lots).cost <= p.cash - reserve) return { type: 'buyStock', street: best, lots };
+          if (lots >= 1 && buyCost(s, best, lots).cost <= p.cash - reserve) return { type: 'buyStock', street: best, lots };
         }
       }
     }

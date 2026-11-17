@@ -4,7 +4,7 @@ import { bankOf, distances, forwardOptions, getMap } from './maps';
 import { step } from './rng';
 import {
   BUYOUT_MULT, BUYOUT_OWNER_SHARE, DEMAND_DECAY, DEMAND_MAX, DEMAND_MIN, LIQUIDATE_RATE, MAX_SHARES, STOCK_LOT,
-  TOP_HOLDER_RATE, buyQuote, canBuyout, dividendFor, fee, investCap, netWorth, salary, sellQuote, topHolder,
+  TOP_HOLDER_RATE, buyCost, canBuyout, dividendFor, fee, investCap, netWorth, salary, sellQuote, topHolder,
 } from './rules';
 import type { Action, CpuLevel, GameState, Mode, Player } from './state';
 import { FACILITY_NAMES, STAMP_NAMES } from './state';
@@ -147,15 +147,16 @@ export function apply(prev: GameState, a: Action): GameState {
       break;
     }
     case 'buyStock': {
-      need(s.phase === 'stock' && s.mode === 'normal' && (s.bankTouched || s.exchangeTouched), a);
+      // 株はターンの終わりにいつでも買える。銀行・両替所に寄っていない番は手数料 10%
+      need(s.phase === 'stock' && s.mode === 'normal', a);
       need(Number.isInteger(a.lots) && a.lots > 0 && a.street >= 0 && a.street < s.demand.length, a);
       need(p.shares[a.street] + a.lots * STOCK_LOT <= MAX_SHARES, a);
-      const q = buyQuote(s, a.street, a.lots);
+      const q = buyCost(s, a.street, a.lots);
       need(p.cash >= q.cost, a);
       p.cash -= q.cost;
       p.shares[a.street] += a.lots * STOCK_LOT;
       s.demand[a.street] = q.demand;
-      log(s, p.id, `${streetName(s, a.street)}の株を ${a.lots * STOCK_LOT} 株買った（${q.cost}G）`);
+      log(s, p.id, `${streetName(s, a.street)}の株を ${a.lots * STOCK_LOT} 株買った（${q.cost}G${q.fee ? `・手数料 ${q.fee}G を含む` : ''}）`);
       break;
     }
     case 'sellStock': {
@@ -507,7 +508,7 @@ export function investOptions(s: GameState): { sq: number; room: number }[] {
     .filter((x) => x.room > 0);
 }
 
-export const canBuyStock = (s: GameState) => s.phase === 'stock' && s.mode === 'normal' && (s.bankTouched || s.exchangeTouched);
+export const canBuyStock = (s: GameState) => s.phase === 'stock' && s.mode === 'normal';
 
 function isOver(s: GameState) {
   return s.phase === 'over';

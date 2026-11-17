@@ -116,14 +116,24 @@ describe('株', () => {
     const after = apply(s, { type: 'roll' });
     expect(after.players[2].cash - before).toBe(50 + Math.round(f * 0.1));
   });
-  it('銀行に寄らないと買えない', () => {
+  it('ターンの終わりならいつでも買える。銀行・両替所に寄っていない番は手数料 10%', () => {
     const s = game();
     s.phase = 'stock';
-    expect(() => apply(s, { type: 'buyStock', street: 0, lots: 1 })).toThrow();
-    s.bankTouched = true;
+    const raw = buyQuote(s, 0, 1).cost;
     const t = apply(s, { type: 'buyStock', street: 0, lots: 1 });
     expect(t.players[0].shares[0]).toBe(10);
     expect(t.demand[0]).toBeCloseTo(1.02);
+    expect(s.players[0].cash - t.players[0].cash).toBe(raw + Math.ceil(raw * 0.1));
+    s.bankTouched = true;
+    const u = apply(s, { type: 'buyStock', street: 0, lots: 1 });
+    expect(s.players[0].cash - u.players[0].cash).toBe(raw); // 銀行に寄った番は手数料なし
+    s.bankTouched = false;
+    s.exchangeTouched = true;
+    expect(s.players[0].cash - apply(s, { type: 'buyStock', street: 0, lots: 1 }).players[0].cash).toBe(raw);
+  });
+  it('サイコロを振る前（ターンの途中）は買えない', () => {
+    const s = game();
+    expect(() => apply(s, { type: 'buyStock', street: 0, lots: 1 })).toThrow();
   });
 });
 

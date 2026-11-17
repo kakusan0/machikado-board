@@ -15,6 +15,7 @@ export interface Item {
   flat?: number; // 1 で光の当たり方を無視（ランプなど）
   shadow?: number; // 影の長さ（0 なら影なし）
   m3?: number[]; // 自由な向きの回転（3×3・列優先）。形の中心のまわりに回す
+  onTop?: boolean; // 建物に隠れず、いつも手前に描く（分かれ道の矢印）
 }
 
 const VS = `attribute vec3 aPos;attribute vec3 aNor;attribute vec2 aUV;
@@ -139,7 +140,11 @@ export class Renderer {
       this.draw({ mesh: o.plane, p: [it.p[0] - o.sun[0] * len, 0.068, it.p[2] - o.sun[2] * len], s: [size, 1, size], r: 0,
         c: [0.08, 0.1, 0.2], tex: o.blob, uvs: [1, 1], alpha: 0.3, flat: 1 });
     }
-    for (const it of o.overlay ?? []) this.draw(it);
+    for (const it of o.overlay ?? []) if (!it.onTop) this.draw(it);
+    // いつも手前に描くもの（奥行きを無視する）
+    gl.disable(gl.DEPTH_TEST);
+    for (const it of o.overlay ?? []) if (it.onTop) this.draw(it);
+    gl.enable(gl.DEPTH_TEST);
     gl.depthMask(true);
   }
 

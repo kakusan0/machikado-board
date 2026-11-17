@@ -348,6 +348,29 @@ export function createBoard3D(initial: Detail): Board3D | null {
       overlay.push({ mesh: M.plane, p: [c[0], 0.08, c[2]], s: [0.98, 1, 0.98], r: 0, c: T.rgb('#2FA35B'), tex: r.white, uvs: [1, 1], alpha: 0.4 + Math.sin(t / 160) * 0.25, flat: 1 });
       overlay.push({ mesh: M.cone, p: [c[0], 0.9 + Math.sin(t / 200) * 0.08, c[2]], s: [0.2, -0.26, 0.2], r: 0, c: T.rgb('#2FA35B'), tex: r.white, uvs: [1, 1], flat: 0.5 });
     }
+    // 分かれ道：コマの頭上に、進める方向の矢印（自分が選ぶときは緑、ほかの人のときは灰色）
+    if (s.pending?.kind === 'direction' && s.phase === 'decide') {
+      const d0 = disp[s.turn];
+      const from = squareCenter(s, s.pending.sq);
+      const mine = !!v.choices?.length;
+      const color = T.rgb(mine ? '#2FA35B' : '#8890A8');
+      const base: Vec3 = d0 ? [d0.pos[0], 0, d0.pos[2]] : [from[0], 0, from[2]];
+      // 銀行の上では建物より高くする
+      const onBank = getMap(s.mapId).squares[s.pending.sq].kind === 'bank';
+      const hgt = (onBank ? 2.15 : 1.0) + Math.sin(t / 260) * 0.04;
+      for (const o of s.pending.options) {
+        const to = squareCenter(s, o);
+        const dir = norm3([to[0] - from[0], 0, to[2] - from[2]]);
+        const push = 0.06 * (1 + Math.sin(t / 180)); // 進む向きへ少し動いて目立たせる
+        const cx = base[0] + dir[0] * (0.32 + push), cz = base[2] + dir[2] * (0.32 + push);
+        // 軸（細長い箱）
+        overlay.push({ mesh: M.cube, p: [cx, hgt - 0.06, cz], s: [0.13, 0.12, 0.42], r: Math.atan2(dir[0], dir[2]), c: color, tex: r.white, uvs: [1, 1], flat: 0.3, onTop: true });
+        // 先（横に倒した円錐。y 軸を進む向きへ回す）
+        const hx = cx + dir[0] * 0.34, hz = cz + dir[2] * 0.34;
+        overlay.push({ mesh: M.cone, p: [hx, hgt - 0.19, hz], s: [0.38, 0.38, 0.38], r: 0,
+          m3: axisAngle(norm3([dir[2], 0, -dir[0]]), Math.PI / 2), c: color, tex: r.white, uvs: [1, 1], flat: 0.3, onTop: true });
+      }
+    }
     // 選んだマス
     if (v.selected != null) {
       const c = squareCenter(s, v.selected);
@@ -382,9 +405,11 @@ export function createBoard3D(initial: Detail): Board3D | null {
   // ---------- 描く ----------
   let raf = 0;
   let visible = true;
+  // カメラの注視点：盤の中心から、手番の人のコマの方へ少し寄せる（分かれ道の矢印が画面の端に出ないように）
+  const look: Vec3 = [0, 0.2, 0];
   function eye(): Vec3 {
     const { yaw, pitch, dist } = cam;
-    return [Math.cos(pitch) * Math.sin(yaw) * dist, 0.3 + Math.sin(pitch) * dist, Math.cos(pitch) * Math.cos(yaw) * dist];
+    return [look[0] + Math.cos(pitch) * Math.sin(yaw) * dist, look[1] + 0.1 + Math.sin(pitch) * dist, look[2] + Math.cos(pitch) * Math.cos(yaw) * dist];
   }
   function frame(t: number) {
     raf = 0;
@@ -392,10 +417,16 @@ export function createBoard3D(initial: Detail): Board3D | null {
     const dpr = Math.min(window.devicePixelRatio || 1, DPR[detail]);
     const w = Math.max(1, Math.round(canvas.clientWidth * dpr)), hh = Math.max(1, Math.round(canvas.clientHeight * dpr));
     if (canvas.width !== w || canvas.height !== hh) { canvas.width = w; canvas.height = hh; }
+    const tok = disp[state.turn]?.pos;
+    if (tok) {
+      const k = 0.06;
+      look[0] += (tok[0] * 0.45 - look[0]) * k;
+      look[2] += (tok[2] * 0.45 - look[2]) * k;
+    }
     const e = eye();
     const mp = getMap(state.mapId);
     const n = Math.max(mp.width, mp.height);
-    vp = mul(persp(0.72, w / hh, 0.1, n * 8), lookAt(e, [0, 0.2, 0], [0, 1, 0]));
+    vp = mul(persp(0.72, w / hh, 0.1, n * 8), lookAt(e, [look[0], look[1], look[2]], [0, 1, 0]));
     const sunRaw: Vec3 = [0.45, 0.78, 0.35];
     const sl = Math.hypot(...sunRaw);
     const sun: Vec3 = [sunRaw[0] / sl, sunRaw[1] / sl, sunRaw[2] / sl];

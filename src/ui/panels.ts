@@ -1,7 +1,7 @@
 // 手番の操作・プレイヤー一覧・株式市場・ログ・マスの詳細
 import { arrow, getMap } from '../game/maps';
 import {
-  BUYOUT_MULT, MAX_SHARES, buyQuote, canBuyout, fee, feeRate, investCap, isMonopoly, netWorth, salary,
+  BUYOUT_MULT, MAX_SHARES, STOCK_COMMISSION, buyCost, canBuyout, fee, feeRate, investCap, isMonopoly, netWorth, salary,
   sellQuote, shopAssets, stockAssets, stockPrice, topHolder,
 } from '../game/rules';
 import type { Action, GameState } from '../game/state';
@@ -87,7 +87,7 @@ export function renderActions(s: GameState, act: Act, busy: boolean, mySeat = 0)
         break;
       case 'buyLot':
         box.append(h('h2', {}, '空き地'),
-          h('p', {}, `${g(pr.value)} で施設を建てられます。屋台村：利用料 40G＋自分のお店 1 軒につき 15G。両替所：止まった人は株を買える（手数料 30G）。`),
+          h('p', {}, `${g(pr.value)} で施設を建てられます。屋台村：利用料 40G＋自分のお店 1 軒につき 15G。両替所：止まった人は、その番に株を手数料なしで買える（両替所の利用料 30G）。`),
           h('div', { class: 'btns' },
             btn('屋台村を建てる', { type: 'buyLot', facility: 'yatai' }, 'primary', p.cash < pr.value),
             btn('両替所を建てる', { type: 'buyLot', facility: 'ryogae' }, 'primary', p.cash < pr.value),
@@ -120,7 +120,9 @@ export function renderActions(s: GameState, act: Act, busy: boolean, mySeat = 0)
   }
   if (s.phase === 'stock') {
     box.append(h('h2', {}, 'ターンの終わり'),
-      h('p', {}, canBuyStock(s) ? '銀行に寄ったので、株を買えます（下の株式市場）。' : '株は売ることだけできます。買うには銀行に寄りましょう。'),
+      h('p', {}, s.bankTouched || s.exchangeTouched
+        ? '銀行か両替所に寄ったので、手数料なしで株を買えます（下の株式市場）。'
+        : `株を買えます（下の株式市場）。銀行・両替所に寄っていない番は手数料 ${Math.round(STOCK_COMMISSION * 100)}% がかかります。`),
       btn('ターンを終える', { type: 'endTurn' }, 'primary big'));
   }
   return box;
@@ -140,7 +142,7 @@ export function renderStocks(s: GameState, act: Act, busy: boolean, mySeat = 0):
       h('thead', {}, h('tr', {}, h('th', {}, '通り'), h('th', {}, '株価'), h('th', {}, '需給'), h('th', {}, 'あなた'), h('th', {}, ''))),
       h('tbody', {}, map.streets.map((st, i) => {
         const top = topHolder(s, i);
-        const buy = buyQuote(s, i, 1);
+        const buy = buyCost(s, i, 1);
         const sell = me.shares[i] > 0 ? sellQuote(s, i, 1) : null;
         return h('tr', {},
           h('td', {}, h('span', { class: 'chip', style: { background: st.color } }), st.name,
@@ -150,12 +152,12 @@ export function renderStocks(s: GameState, act: Act, busy: boolean, mySeat = 0):
           h('td', { class: 'num' }, `${me.shares[i]} 株`),
           h('td', { class: 'trade' },
             h('button', { class: 'btn sm', disabled: !canBuy || p.cash < buy.cost || p.shares[i] >= MAX_SHARES,
-              title: `10 株 ${g(buy.cost)}`, onclick: () => act({ type: 'buyStock', street: i, lots: 1 }) }, '買う'),
+              title: `10 株 ${g(buy.cost)}${buy.fee ? `（手数料 ${g(buy.fee)} を含む）` : ''}`, onclick: () => act({ type: 'buyStock', street: i, lots: 1 }) }, '買う'),
             h('button', { class: 'btn sm', disabled: !canSell || !sell,
               title: sell ? `10 株 ${g(sell.gain)}` : '', onclick: () => act({ type: 'sellStock', street: i, lots: 1 }) }, '売る')),
         );
       }))),
-    h('p', { class: 'note' }, '10 株単位。利用料が払われるたびに 2 株につき 1G の配当、筆頭株主（50 株以上）は利用料の 10%。'));
+    h('p', { class: 'note' }, `10 株単位で、ターンの終わりにいつでも買えます（銀行・両替所に寄っていない番は手数料 ${Math.round(STOCK_COMMISSION * 100)}%）。利用料が払われるたびに 2 株につき 1G の配当、筆頭株主（50 株以上）は利用料の 10%。`));
 }
 
 export function renderInfo(s: GameState, sqId: number | null): HTMLElement | null {

@@ -16,6 +16,7 @@ export const MONOPOLY_BONUS = 0.1;
 export const TOP_HOLDER_MIN = 50;
 export const TOP_HOLDER_RATE = 0.1;
 export const EASY_FEE_RATE = 0.2;
+export const STOCK_COMMISSION = 0.1; // 銀行・両替所以外で株を買うときの手数料
 
 export const salary = (level: number) => 200 + level * 60;
 
@@ -96,6 +97,16 @@ export function buyQuote(state: GameState, street: number, lots: number): { cost
     d = Math.min(DEMAND_MAX, d * DEMAND_STEP);
   }
   return { cost, demand: d };
+}
+
+// 株を買う場所の手数料：この番に銀行か両替所に寄っていれば 0、ほかの場所では 10%
+export const stockCommission = (state: GameState) => (state.bankTouched || state.exchangeTouched ? 0 : STOCK_COMMISSION);
+
+// 手数料を含めた買う代金
+export function buyCost(state: GameState, street: number, lots: number): { cost: number; fee: number; demand: number } {
+  const q = buyQuote(state, street, lots);
+  const fee = Math.ceil(q.cost * stockCommission(state));
+  return { cost: q.cost + fee, fee, demand: q.demand };
 }
 
 // 売るときは先に株価が下がる（買ってすぐ売っても得をしない）
