@@ -93,7 +93,10 @@ for (const [label, viewport] of [['PC', { width: 1280, height: 900 }], ['スマ�
     assert(forks > 0, '分かれ道に一度も止まらなかった');
     // 自分の番でサイコロを振る前は、止まる候補のマスに目の数が出る
     const lands = await page.locator('.sq .land').allTextContents();
-    assert(lands.length >= 1 && lands.length <= 12 && lands.every((x) => /^🎲[1-6](・[1-6])*$/.test(x)), `止まる候補の表示がおかしい：${lands.join(' ')}`);
+    // 分かれ道が続くと候補は 12 マスを超えることがある。形と、1〜6 の目がすべて出ていることを確かめる
+    assert(lands.length >= 1 && lands.every((x) => /^🎲[1-6](・[1-6])*$/.test(x)), `止まる候補の表示がおかしい：${lands.join(' ')}`);
+    const shown = new Set(lands.flatMap((x) => x.replace('🎲', '').split('・')));
+    assert([1, 2, 3, 4, 5, 6].every((d) => shown.has(String(d))), `出ていない目がある：${[...shown].join(',')}`);
     // マップの上に自分の情報。ほかの人の情報は「プレイヤー」タブ
     assert(await page.locator('.me-bar').count() === 1, 'マップの上に自分の情報がない');
     assert((await page.locator('.me-bar').textContent()).includes('現金'), '自分の情報に現金がない');
