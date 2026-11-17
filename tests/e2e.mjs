@@ -195,6 +195,45 @@ await step('ダークモード：株式市場で選んだ通りの「買う」�
   await ctx.close();
 });
 
+await step('スマホ：横に払う（フリック）とタブが移る。縦や 3D の盤面の上では移らない', async () => {
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto(BASE);
+  await page.evaluate((s) => { localStorage.clear(); localStorage.setItem('machikado-board/settings-v1', JSON.stringify(s)); }, { ...base, mapId: 'corner', view: '2d' });
+  await page.reload();
+  await page.getByRole('button', { name: 'はじめる' }).click();
+  // 指の動きを作る（touchstart → touchend）
+  const swipe = (sel, dx, dy) => page.evaluate(([sel, dx, dy]) => {
+    const el = document.querySelector(sel);
+    const r = el.getBoundingClientRect();
+    const x = r.left + r.width / 2, y = r.top + Math.min(r.height / 2, 200);
+    const touch = (cx, cy) => new Touch({ identifier: 1, target: el, clientX: cx, clientY: cy });
+    el.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, touches: [touch(x, y)], changedTouches: [touch(x, y)] }));
+    el.dispatchEvent(new TouchEvent('touchend', { bubbles: true, touches: [], changedTouches: [touch(x + dx, y + dy)] }));
+  }, [sel, dx, dy]);
+  const current = async () => (await page.locator('.tab.on').textContent()).replace('買えます', '').trim();
+  assert(await current() === '盤面', 'はじめのタブが盤面でない');
+  await swipe('.me-bar', -120, 5);
+  assert(await current() === '株式市場', `左へ払っても株式市場に移らない（${await current()}）`);
+  await swipe('.tab-body', -120, 0);
+  assert(await current() === 'プレイヤー', `もう一度左へ払ってもプレイヤーに移らない（${await current()}）`);
+  await swipe('.tab-body', -120, 0);
+  assert(await current() === 'プレイヤー', '右端より先へ移った');
+  await swipe('.tab-body', 120, 0);
+  assert(await current() === '株式市場', '右へ払っても戻らない');
+  await swipe('.tab-body', 30, 160);
+  assert(await current() === '株式市場', '縦に払ったのにタブが変わった');
+  await page.getByRole('tab', { name: '盤面' }).click();
+  await page.getByRole('button', { name: '3D' }).click();
+  await page.waitForSelector('.board3d canvas');
+  await swipe('.board3d canvas', -150, 0);
+  assert(await current() === '盤面', '3D の盤面の上で払ったのにタブが変わった');
+  assert(errors.length === 0, `エラー：${errors.join(' / ')}`);
+  await ctx.close();
+});
+
 await step('保存と再開：再読み込みで「つづきから」になり、同じ状態に戻る', async () => {
   const { page, errors } = await newPage({ width: 1280, height: 900 }, { ...base, mapId: 'harbor', view: '2d' });
   await page.getByRole('button', { name: 'はじめる' }).click();

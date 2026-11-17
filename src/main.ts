@@ -51,7 +51,7 @@ const bubbles = new Map<number, { text: string; until: number }>();
 const muted = new Set<number>(load<number[]>(MUTE_KEY) ?? []);
 
 // 株式市場タブ：株を買えるときに自動で開き、終わったら盤面に戻す
-let tab: 'board' | 'market' | 'players' = 'board';
+let tab: 'board' | 'market' | 'players' = 'board'; // Tab 型と同じ
 let autoKey = ''; // 自動で開いた「買える場面」の目印
 let pickStreet: number | null = null; // 株式市場で選んだ通り（2D の盤面で点滅）
 let scrollToPick = false; // 選んだ通りの情報まで画面を動かす
@@ -238,16 +238,18 @@ function render() {
         window.clearTimeout(timer); busy = false; state = null; store(SAVE_KEY, null); render();
       } }, online ? 'ぬける' : 'やめる')),
     renderTabs(s),
-    tab === 'players' ? renderPlayersTab(s)
-      : tab === 'market' && s.mode === 'normal' ? renderMarket(s)
-      : h('main', { class: 'layout' },
-        h('div', { class: 'board-wrap' }, renderMe(s, me, latestBubble(s)), boardEl(s)),
-        h('div', { class: 'side' },
-          online ? renderOnlineBar(s) : null,
-          renderActions(s, act, busy, me),
-          renderInfo(s, selected),
-          renderStocks(s, act, busy, me),
-          renderLog(s))));
+    h('div', { class: `tab-body${slideFrom ? ` slide-${slideFrom}` : ''}` },
+      tab === 'players' ? renderPlayersTab(s)
+        : tab === 'market' && s.mode === 'normal' ? renderMarket(s)
+        : h('main', { class: 'layout' },
+          h('div', { class: 'board-wrap' }, renderMe(s, me, latestBubble(s)), boardEl(s)),
+          h('div', { class: 'side' },
+            online ? renderOnlineBar(s) : null,
+            renderActions(s, act, busy, me),
+            renderInfo(s, selected),
+            renderStocks(s, act, busy, me),
+            renderLog(s)))));
+  slideFrom = null;
   app.replaceChildren(view);
   updateTimers();
   if (scrollToPick) {
@@ -312,9 +314,57 @@ function renderTabs(s: GameState): HTMLElement | null {
     class: `tab${tab === id ? ' on' : ''}`, role: 'tab', 'aria-selected': String(tab === id),
     onclick: () => { tab = id; render(); },
   }, label, badge ? h('span', { class: 'badge' }, badge) : null);
-  return h('nav', { class: 'tabs', role: 'tablist', 'aria-label': '表示の切り替え' },
-    btn('board', '盤面'), s.mode === 'normal' ? btn('market', '株式市場', chance ? '買えます' : undefined) : null, btn('players', 'プレイヤー'));
+  const order = tabOrder(s);
+  return h('div', { class: 'tabs-wrap' },
+    h('nav', { class: 'tabs', role: 'tablist', 'aria-label': '表示の切り替え' },
+      btn('board', '盤面'), s.mode === 'normal' ? btn('market', '株式市場', chance ? '買えます' : undefined) : null, btn('players', 'プレイヤー')),
+    // スマホ：いま何番目のタブか（横に払って移れる）
+    h('div', { class: 'tab-dots', 'aria-hidden': 'true' }, order.map((id) => h('i', { class: id === tab ? 'on' : '' })),
+      h('small', {}, '← 横に払ってタブを移動 →')));
 }
+
+// ---------- フリック（横に払う）でタブを移る ----------
+type Tab = 'board' | 'market' | 'players';
+let slideFrom: 'left' | 'right' | null = null; // 新しいタブの中身をどちらから滑り込ませるか
+const tabOrder = (s: GameState): Tab[] => (s.mode === 'normal' ? ['board', 'market', 'players'] : ['board', 'players']);
+
+function moveTab(dir: 1 | -1) {
+  if (!state) return;
+  const order = tabOrder(state);
+  const i = Math.max(0, order.indexOf(tab));
+  const j = i + dir;
+  if (j < 0 || j >= order.length) return; // 端では止まる
+  tab = order[j];
+  slideFrom = dir > 0 ? 'right' : 'left';
+  render();
+}
+
+// フリックとして扱わない場所：3D の盤面（回転のドラッグ）、入力欄、横にスクロールできる要素の中
+function swipeBlocked(el: EventTarget | null): boolean {
+  for (let n = el as HTMLElement | null; n && n !== document.body; n = n.parentElement) {
+    if (n.matches?.('.board3d, input, select, textarea')) return true;
+    if (n.scrollWidth > n.clientWidth + 2 && ['auto', 'scroll'].includes(getComputedStyle(n).overflowX)) return true;
+  }
+  return false;
+}
+
+let swipe: { x: number; y: number; t: number } | null = null;
+document.addEventListener('touchstart', (e) => {
+  swipe = null;
+  if (e.touches.length !== 1 || !state || swipeBlocked(e.target)) return;
+  const t = e.touches[0];
+  swipe = { x: t.clientX, y: t.clientY, t: Date.now() };
+}, { passive: true });
+document.addEventListener('touchmove', (e) => { if (e.touches.length !== 1) swipe = null; }, { passive: true });
+document.addEventListener('touchend', (e) => {
+  const st = swipe;
+  swipe = null;
+  if (!st || e.changedTouches.length !== 1) return;
+  const t = e.changedTouches[0];
+  const dx = t.clientX - st.x, dy = t.clientY - st.y;
+  if (Date.now() - st.t > 600 || Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+  moveTab(dx < 0 ? 1 : -1); // 左へ払うと次のタブ
+}, { passive: true });
 
 // 株式市場タブ：左に 2D の盤面（選んだ通りが点滅）、右に操作と株式市場
 function renderMarket(s: GameState): HTMLElement {

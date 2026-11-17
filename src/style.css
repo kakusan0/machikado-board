@@ -302,5 +302,18 @@ legend { font-weight: 900; margin-bottom: 6px; }
 /* サイコロで止まる候補のマス */
 .sq.landing { border-style: dashed; border-color: var(--accent); }
 .sq .land { position: absolute; left: 3px; bottom: 3px; background: var(--accent); color: #fff; font-size: 10px; font-weight: 900; line-height: 1; padding: 3px 5px; border-radius: 6px; z-index: 2; letter-spacing: .02em; }
-@media (max-width: 600px) { .sq .land { font-size: 9px; padding: 2px 3px; } }
+@media (max-width: 600px) { .sq .land { font-size: 8px; padding: 1px 3px; left: 1px; bottom: 1px; opacity: .92; } }
 .grid-10 .sq .land { font-size: 9px; padding: 2px 3px; }
+
+/* フリックでタブ移動 */
+.tabs-wrap { max-width: 1280px; margin: 0 auto; }
+.tab-dots { display: none; align-items: center; justify-content: center; gap: 6px; padding: 6px 0 0; }
+.tab-dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--line); }
+.tab-dots i.on { background: var(--accent); width: 18px; border-radius: 99px; }
+.tab-dots small { font-size: 10px; color: var(--sub); margin-left: 8px; }
+@media (max-width: 900px), (pointer: coarse) { .tab-dots { display: flex; } }
+.tab-body.slide-right { animation: slidein-r .14s ease-out; }
+.tab-body.slide-left { animation: slidein-l .14s ease-out; }
+@keyframes slidein-r { from { transform: translateX(40px); opacity: .4; } to { transform: none; opacity: 1; } }
+@keyframes slidein-l { from { transform: translateX(-40px); opacity: .4; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .tab-body.slide-right, .tab-body.slide-left { animation: none; } }
