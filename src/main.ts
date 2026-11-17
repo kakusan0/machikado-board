@@ -46,6 +46,8 @@ let netStatus: 'connecting' | 'open' | 'closed' = 'closed';
 let notice = '';
 let remainUntil = 0; // 自分の判断の締め切り（この端末の時計で）
 let tick: number | undefined;
+// コマが動いているあいだの道すじと到着マス（画面の演出用）
+let moving: { trail: number[]; dest: number; step: number; label: string } | null = null;
 const queue: RoomView[] = [];
 const bubbles = new Map<number, { text: string; until: number }>();
 const muted = new Set<number>(load<number[]>(MUTE_KEY) ?? []);
@@ -76,17 +78,30 @@ async function present(prev: GameState, next: GameState, type: Action['type']) {
   if (type === 'roll' || type === 'move' || resumes) {
     busy = true;
     state = { ...prev, dice: next.dice, pending: null };
+    // 進む道と到着マスを、動き出す前から見せる
+    const path = next.path;
+    const map = getMap(next.mapId);
+    const dest = path[path.length - 1];
+    const fork = next.pending?.kind === 'direction';
+    const dice = type === 'roll' && next.dice ? `🎲${next.dice}` : '';
+    const who = prev.turn === mySeat() ? '' : `${prev.players[prev.turn].name}：`;
+    moving = {
+      trail: path.slice(1), dest, step: 0,
+      label: fork ? `${who}${dice} 分かれ道まで進んで方向を選ぶ` : `${who}${dice} ${map.squares[dest].name} に止まる`,
+    };
     if (type === 'roll' && use3d()) {
       // 3D はサイコロが転がって止まるのを見せてからコマを動かす
       render();
       await delay(DICE_MS + 150);
     }
-    for (const sq of next.path.slice(1)) {
+    for (const [k, sq] of next.path.slice(1).entries()) {
       tokens = prev.players.map((p, i) => (i === prev.turn ? sq : p.pos));
+      moving.step = k + 1;
       render();
       await delay(170);
     }
     tokens = undefined;
+    moving = null;
     busy = false;
   }
   state = next;
@@ -371,7 +386,7 @@ function renderMarket(s: GameState): HTMLElement {
   const me = mySeat();
   const map = getMap(s.mapId);
   // マップのお店を押したら、その通りを選ぶ（表の行も黄色くなり、通りのマスが点滅）
-  const v: BoardView = { selected, highlightStreet: pickStreet, me: mySeat(), landing: landingFor(s), onSelect: (sq) => {
+  const v: BoardView = { selected, highlightStreet: pickStreet, me: mySeat(), landing: landingFor(s), ...arrivalFor(s), onSelect: (sq) => {
     const q = map.squares[sq];
     if (q.kind === 'shop') {
       const again = selected === sq;
@@ -417,10 +432,27 @@ function landingFor(s: GameState): Map<number, string> | undefined {
   return undefined;
 }
 
+// 到着マスの表示：動いているあいだは「ここに止まる」、止まったあとはその番の終わりまで「到着」
+function arrivalFor(s: GameState): Pick<BoardView, 'trail' | 'dest' | 'destText' | 'stepsLeft' | 'message'> {
+  if (moving) {
+    return {
+      trail: moving.trail.slice(moving.step), dest: moving.dest, destText: 'ここに止まる',
+      stepsLeft: moving.trail.length - moving.step, message: moving.label,
+    };
+  }
+  const p = s.players[s.turn];
+  const last = s.path[s.path.length - 1];
+  if ((s.phase === 'decide' || s.phase === 'stock') && s.dice && s.path.length > 1 && last === p.pos && s.pending?.kind !== 'direction') {
+    const who = s.turn === mySeat() ? '' : `${p.name}：`;
+    return { dest: p.pos, destText: '到着', message: `${who}🎲${s.dice} ${getMap(s.mapId).squares[p.pos].name} に到着` };
+  }
+  return {};
+}
+
 function boardEl(s: GameState): HTMLElement {
   const human = s.turn === mySeat() && !busy;
   const choices = human && s.pending?.kind === 'direction' ? s.pending.options : undefined;
-  const v: BoardView = { tokens, selected, choices, me: mySeat(), landing: landingFor(s), onSelect: (sq) => {
+  const v: BoardView = { tokens, selected, choices, me: mySeat(), landing: landingFor(s), ...arrivalFor(s), onSelect: (sq) => {
     if (choices?.includes(sq)) { void act({ type: 'move', to: sq }); return; }
     selected = selected === sq ? null : sq; render();
   } };

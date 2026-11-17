@@ -238,6 +238,11 @@ export function landingAfter(m: GameMap, pos: number, prev: number | null, n: nu
   return new Set(now.map(([p]) => p));
 }
 
+// 分かれ道でその方向を選んだときに止まるマス（その先にも分かれ道があれば候補が複数）
+export function stopsVia(m: GameMap, from: number, option: number, left: number): number[] {
+  return [...landingAfter(m, option, from, Math.max(0, left - 1))];
+}
+
 // サイコロの目（1〜6）ごとに止まる可能性のあるマス：マス → 目の一覧
 export function landingByDice(m: GameMap, pos: number, prev: number | null): Map<number, number[]> {
   const out = new Map<number, number[]>();

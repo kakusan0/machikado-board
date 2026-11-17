@@ -16,6 +16,10 @@ export interface BoardView {
   highlightStreet?: number | null; // 点滅させる通り（株式市場で選んだ通り）
   me?: number; // 自分の席（自分のコマを目立たせる）
   landing?: Map<number, string>; // 止まる候補のマス → 表示する文字（サイコロの目など）
+  trail?: number[]; // これから通るマス（サイコロを振ったあと）
+  dest?: number; // 到着するマス
+  destText?: string; // 到着マスの札の文字（「ここに止まる」「到着」）
+  stepsLeft?: number; // 残りの歩数（コマの上に出す）
   message?: string;
 }
 
@@ -56,7 +60,7 @@ export function renderBoard(s: GameState, v: BoardView): HTMLElement {
     const mono = s.mode === 'normal' && owner && sq.kind === 'shop' && isMonopoly(s, sq.street!, owner.id);
     const fresh = mono && s.monopoly?.street === sq.street; // この番に独占したばかり
     const cell = h('button', {
-      class: `sq k-${sq.kind}${owner ? ' owned' : ''}${mono ? ' mono' : ''}${fresh ? ' fresh' : ''}${v.selected === sq.id ? ' sel' : ''}${choices.has(sq.id) ? ' choice' : ''}${v.landing?.has(sq.id) ? ' landing' : ''}${v.highlightStreet != null && sq.street === v.highlightStreet ? ' blink' : ''}`,
+      class: `sq k-${sq.kind}${owner ? ' owned' : ''}${mono ? ' mono' : ''}${fresh ? ' fresh' : ''}${v.selected === sq.id ? ' sel' : ''}${choices.has(sq.id) ? ' choice' : ''}${v.landing?.has(sq.id) ? ' landing' : ''}${v.dest === sq.id ? ' dest' : ''}${v.trail?.includes(sq.id) && v.dest !== sq.id ? ' trail' : ''}${v.highlightStreet != null && sq.street === v.highlightStreet ? ' blink' : ''}`,
       style: {
         gridColumn: String(x + 1), gridRow: String(y + 1),
         '--street': street?.color ?? 'transparent', '--owner': owner?.color ?? 'transparent',
@@ -77,6 +81,7 @@ export function renderBoard(s: GameState, v: BoardView): HTMLElement {
     }, mono ? h('span', { class: 'crown', 'aria-label': '独占' }, '♛') : null, owner.closed ? '休業' : `${fee(s, sq.id).toLocaleString()}G`) : null,
     choices.has(sq.id) && s.pending?.kind === 'direction' ? h('span', { class: 'arrow' }, arrow(map, s.pending.sq, sq.id)) : null,
     v.landing?.has(sq.id) ? h('span', { class: 'land', title: '止まる候補' }, v.landing.get(sq.id)!) : null,
+    v.dest === sq.id ? h('span', { class: 'dest-tag' }, v.destText ?? '到着') : null,
     );
     board.append(cell);
   });
@@ -95,7 +100,8 @@ export function renderBoard(s: GameState, v: BoardView): HTMLElement {
         translate: `${-(same % 2) * 12}px ${-Math.floor(same / 2) * 12}px`,
       },
       'aria-label': `${p.name} のコマ${mine ? '（あなた）' : ''}`,
-    }, p.name.slice(0, 1), mine ? h('span', { class: 'me-tag' }, 'あなた') : null));
+    }, p.name.slice(0, 1), mine && !(i === s.turn && v.stepsLeft) ? h('span', { class: 'me-tag' }, 'あなた') : null,
+      i === s.turn && v.stepsLeft ? h('span', { class: 'steps-tag' }, `あと ${v.stepsLeft}`) : null));
   });
 
   // 盤の上の帯（マップ名・サイコロ・カード）
@@ -110,7 +116,7 @@ export function renderBoard(s: GameState, v: BoardView): HTMLElement {
     s.monopoly ? h('div', { class: 'card mono', role: 'status' }, h('b', {}, `♛ ${s.players[s.monopoly.player].name}が${map.streets[s.monopoly.street].name}を独占！`), ' 利用料 +10%・増資の上限 3 倍・買収されない') : null,
     s.salary ? h('div', { class: 'card salary', role: 'status' }, h('b', {}, `${s.players[s.salary.player].name}が昇格！`), ` 段階 ${s.salary.level}・給料 ${g(s.salary.amount)}`) : null,
     card ? h('div', { class: 'card' }, h('b', {}, card.title), ' ', card.text) : null,
-    v.message ? h('div', { class: 'msg' }, v.message) : null,
+    v.message ? h('div', { class: 'msg dest-msg', role: 'status' }, v.message) : null,
   );
   return h('div', { class: 'board2d' }, info, board);
 }

@@ -1,5 +1,5 @@
 // 手番の操作・プレイヤー一覧・株式市場・ログ・マスの詳細
-import { arrow, getMap } from '../game/maps';
+import { arrow, getMap, stopsVia } from '../game/maps';
 import {
   BUYOUT_MULT, MAX_SHARES, STOCK_LOT, buyQuote, canBuyout, fee, feeRate, investCap, isMonopoly, netWorth, salary,
   sellQuote, shopAssets, stockAssets, stockPrice, topHolder,
@@ -129,12 +129,12 @@ export function renderActions(s: GameState, act: Act, busy: boolean, mySeat = 0)
       case 'direction': {
         const pend = s.pending;
         box.append(h('h2', {}, '分かれ道'),
-          h('p', {}, `どちらへ進みますか？（あと ${s.moving?.left ?? 0} マス。来た道へは戻れません）盤面の光っているマスを押しても選べます。`),
+          h('p', {}, `どちらの道へ進みますか？（あと ${s.moving?.left ?? 0} マス。来た道へは戻れません）ボタンの下に、その道で止まるマスを出しています。`),
           h('div', { class: 'btns dirs' }, pend.options.map((o) => {
-            const q = map.squares[o];
-            const owner = s.props[o]?.owner;
-            const sub = q.kind === 'shop' ? (owner != null ? `${s.players[owner].name}のお店` : '空き店舗') : '';
-            return btn(`${arrow(map, pend.sq, o)} ${q.name}${sub ? `（${sub}）` : ''}`, { type: 'move', to: o }, 'primary');
+            const stops = stopsVia(map, pend.sq, o, s.moving?.left ?? 1).map((sq) => stopLabel(s, sq));
+            return h('button', { class: 'btn primary dir', onclick: () => act({ type: 'move', to: o }) },
+              h('span', { class: 'go' }, `${arrow(map, pend.sq, o)} この道へ進む`),
+              h('span', { class: 'stop' }, `止まる：${stops.join(' または ')}`));
           })));
         break;
       }
@@ -192,6 +192,14 @@ export interface StockOptions {
   wide?: boolean; // 株式市場タブ用の広い表
   highlight?: number | null; // 選んでいる通り（盤面で点滅させる）
   onPick?: (street: number) => void; // 行を押したとき
+}
+
+// 止まるマスの短い説明（例「喫茶こもれび（空き店舗）」「ミナトのお店 魚市場」）
+function stopLabel(s: GameState, sq: number): string {
+  const q = getMap(s.mapId).squares[sq];
+  const pr = s.props[sq];
+  if (q.kind === 'shop') return pr?.owner == null ? `${q.name}（空き店舗）` : pr.owner === s.turn ? `${q.name}（自分のお店）` : `${q.name}（${s.players[pr.owner].name}のお店）`;
+  return q.kind === 'chance' ? 'チャンス' : q.name;
 }
 
 // 「買う」が押せない理由（押せるときは null）

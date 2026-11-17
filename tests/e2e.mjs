@@ -110,6 +110,31 @@ for (const [label, viewport] of [['PC', { width: 1280, height: 900 }], ['スマ�
     const pins = await page.locator('.sq .pin').allTextContents();
     assert(pins.length === owned, `ピンの数が合わない（${pins.length}/${owned}）`);
     assert(pins.every((x) => /^♛?([\d,]+G|休業)$/.test(x)), `ピンの文字がおかしい：${pins.join(' ')}`); // 独占中は王冠付き
+    // サイコロを振ると、到着マスに印が出る（止まったあとは自分のコマがいるマス）
+    await page.waitForSelector('.actions button:has-text("サイコロを振る")', { timeout: 90_000 });
+    await page.getByRole('button', { name: 'サイコロを振る' }).click();
+    await page.waitForSelector('.sq.dest', { timeout: 5000 });
+    assert(await page.locator('.sq.dest').count() === 1, '到着マスの印が 1 つでない');
+    for (let k = 0; k < 20; k++) {
+      await page.waitForTimeout(400);
+      const dirs = page.locator('.actions .dirs button');
+      if (await dirs.count()) { await dirs.first().click(); continue; }
+      const skip = page.locator('.actions button', { hasText: /見送る|増資しない|終えて進む/ });
+      if (await skip.count()) { await skip.first().click(); continue; }
+      const end = page.locator('.actions button', { hasText: 'ターンを終える' });
+      if (await end.count()) {
+        const destName = await page.locator('.sq.dest').getAttribute('aria-label');
+        const meAt = await page.locator('.token.me').evaluate((el) => {
+          const r = el.getBoundingClientRect();
+          const cells = [...document.querySelectorAll('.sq')];
+          const hit = cells.find((c) => { const b = c.getBoundingClientRect(); return r.left + r.width / 2 > b.left && r.left + r.width / 2 < b.right && r.top + r.height / 2 > b.top && r.top + r.height / 2 < b.bottom; });
+          return hit?.getAttribute('aria-label');
+        });
+        assert(destName === meAt, `到着マス（${destName}）と自分のコマのマス（${meAt}）が違う`);
+        await end.click();
+        break;
+      }
+    }
     assert(errors.length === 0, `エラー：${errors.join(' / ')}`);
     await page.close();
   });
@@ -266,6 +291,9 @@ await step('3D：切り替えると立体の盤面が出て、サイコロを振
   const dirs = await st0.page.locator('.actions .dirs button').count();
   const labels = Number(await st0.page.locator('.board3d').getAttribute('data-choices'));
   assert(dirs === 2 && labels === dirs, `分かれ道の札の数が合わない（札 ${labels}・選択肢 ${dirs}）`);
+  // 方向のボタンは「この道へ進む」と「止まる：〇〇」を分けて出す（止まる場所と取り違えないように）
+  const dirTexts = await st0.page.locator('.actions .dirs button').allTextContents();
+  assert(dirTexts.every((x) => x.includes('この道へ進む') && x.includes('止まる：')), `方向のボタンの文字：${dirTexts.join(' / ')}`);
   assert(st0.errors.length === 0, `エラー：${st0.errors.join(' / ')}`);
   await st0.page.close();
   await playMyTurn(page);

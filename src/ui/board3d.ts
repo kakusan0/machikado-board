@@ -1,6 +1,6 @@
 // 3D の盤面（WebGL）。キャンバスは作り直さず、状態が変わったときだけ場面を組み直す
 import { CARDS } from '../game/cards';
-import { getMap } from '../game/maps';
+import { getMap, stopsVia } from '../game/maps';
 import type { GameMap } from '../game/state';
 import { fee, isMonopoly, netWorth } from '../game/rules';
 import type { GameState } from '../game/state';
@@ -78,6 +78,7 @@ export function createBoard3D(initial: Detail): Board3D | null {
   const disp: { pos: Vec3; from: Vec3; to: Vec3; t0: number }[] = [];
   let diceAnim = { value: 0, t0: 0 };
   let choiceSpots: { sq: number; p: Vec3 }[] = [];
+  let destNow: number | null = null; // 到着マス（カメラの注視点に使う）
 
   function makeMeshes(): Meshes {
     r.dropMeshes();
@@ -344,8 +345,17 @@ export function createBoard3D(initial: Detail): Board3D | null {
         overlay.push({ mesh: M.plane, p: [d.pos[0], 0.085, d.pos[2]], s: [0.62 * pulse, 1, 0.62 * pulse], r: 0, c: [1, 1, 1],
           tex: r.tex(`ring:${p.color}`, () => T.ring(p.color), false), uvs: [1, 1], alpha: 0.95, flat: 1 });
         const sc = Math.min(1.7, Math.max(1, 640 / Math.max(1, canvas.clientWidth)));
-        labels.push({ mesh: M.card, p: [d.pos[0], d.pos[1] + 0.68, d.pos[2]], s: [0.5 * sc, 0.25 * sc, 1], r: cam.yaw, c: [1, 1, 1],
-          tex: r.tex(`sign:pin:${p.color}:あなた:`, () => T.pinLabel('あなた', p.color), false), uvs: [1, 1], flat: 0.4, onTop: true });
+        if (!(i === s.turn && v.stepsLeft)) {
+          labels.push({ mesh: M.card, p: [d.pos[0], d.pos[1] + 0.68, d.pos[2]], s: [0.5 * sc, 0.25 * sc, 1], r: cam.yaw, c: [1, 1, 1],
+            tex: r.tex(`sign:pin:${p.color}:あなた:`, () => T.pinLabel('あなた', p.color), false), uvs: [1, 1], flat: 0.4, onTop: true });
+        }
+      }
+      // 進んでいるあいだは、手番の人のコマの上に残りの歩数
+      if (i === s.turn && v.stepsLeft) {
+        const sc = Math.min(1.7, Math.max(1, 640 / Math.max(1, canvas.clientWidth)));
+        const text = `あと ${v.stepsLeft}`;
+        labels.push({ mesh: M.card, p: [d.pos[0], d.pos[1] + 0.68, d.pos[2]], s: [0.56 * sc, 0.28 * sc, 1], r: cam.yaw, c: [1, 1, 1],
+          tex: r.tex(`sign:pin:#E0A21B:${text}:`, () => T.pinLabel(text, '#E0A21B'), false), uvs: [1, 1], flat: 0.4, onTop: true });
       }
       if (i === s.turn) {
         const y = mine ? 1.12 : 0.85;
@@ -363,9 +373,12 @@ export function createBoard3D(initial: Detail): Board3D | null {
       const mine = !!v.choices?.length;
       const color = mine ? '#2FA35B' : '#6B7390';
       const sc = Math.min(1.7, Math.max(1, 640 / Math.max(1, canvas.clientWidth)));
+      const forkSq = s.pending.sq;
       s.pending.options.forEach((o, k) => {
         const c = squareCenter(s, o);
-        const [name, sub] = choiceText(s, o);
+        const stops = stopsVia(getMap(s.mapId), forkSq, o, s.moving?.left ?? 1).map((q) => choiceText(s, q)[0]);
+        const name = 'この道へ進む';
+        const sub = `止まる：${stops.join('・')}`;
         // 札どうしが重ならないよう、2 枚目以降は少しずつ高くする
         const y = labelHeight(s, o) + k * 0.5 * sc + Math.sin(t / 300 + o) * 0.04;
         labels.push({
@@ -390,6 +403,27 @@ export function createBoard3D(initial: Detail): Board3D | null {
       lands++;
     }
     el.dataset.landing = String(lands);
+    // サイコロを振ったあと：通るマスの床に光る点、到着マスに金色の輪と光の柱と札
+    for (const sq of v.trail ?? []) {
+      if (sq === v.dest) continue;
+      const c = squareCenter(s, sq);
+      overlay.push({ mesh: M.cyl, p: [c[0], 0.075, c[2]], s: [0.18, 0.02, 0.18], r: 0, c: T.rgb('#F2C230'), tex: r.white, uvs: [1, 1], flat: 1, alpha: 0.9 });
+    }
+    if (v.dest != null) {
+      const c = squareCenter(s, v.dest);
+      const pulse = 1 + Math.sin(t / 200) * 0.08;
+      overlay.push({ mesh: M.plane, p: [c[0], 0.082, c[2]], s: [1.1 * pulse, 1, 1.1 * pulse], r: 0, c: [1, 1, 1],
+        tex: r.tex('ring:#E0A21B', () => T.ring('#E0A21B'), false), uvs: [1, 1], alpha: 1, flat: 1 });
+      overlay.push({ mesh: M.cyl, p: [c[0], 0.06, c[2]], s: [0.5, 1.5, 0.5], r: 0, c: T.rgb('#FFE27A'), tex: r.white, uvs: [1, 1], flat: 1, alpha: 0.12 + Math.sin(t / 250) * 0.04 });
+      const sc = Math.min(1.7, Math.max(1, 640 / Math.max(1, canvas.clientWidth)));
+      const text = v.destText ?? '到着';
+      if (!choiceSpots.some((x) => x.sq === v.dest)) {
+        labels.push({ mesh: M.card, p: [c[0], labelHeight(s, v.dest), c[2]], s: [0.72 * sc, 0.36 * sc, 1], r: cam.yaw, c: [1, 1, 1],
+          tex: r.tex(`sign:pin:#E0A21B:${text}:`, () => T.pinLabel(text, '#E0A21B'), false), uvs: [1, 1], flat: 0.4, onTop: true });
+      }
+      destNow = v.dest;
+    } else destNow = null;
+    el.dataset.dest = destNow != null ? String(destNow) : '';
     // 分かれ道で選べるマス
     for (const c0 of v.choices ?? []) {
       const c = squareCenter(s, c0);
@@ -475,11 +509,14 @@ export function createBoard3D(initial: Detail): Board3D | null {
     const dpr = Math.min(window.devicePixelRatio || 1, DPR[detail]);
     const w = Math.max(1, Math.round(canvas.clientWidth * dpr)), hh = Math.max(1, Math.round(canvas.clientHeight * dpr));
     if (canvas.width !== w || canvas.height !== hh) { canvas.width = w; canvas.height = hh; }
+    // 注視点：手番の人のコマへ寄せる。到着マスがあるときは、コマと到着マスの間へ
     const tok = disp[state.turn]?.pos;
     if (tok) {
       const k = 0.06;
-      look[0] += (tok[0] * 0.45 - look[0]) * k;
-      look[2] += (tok[2] * 0.45 - look[2]) * k;
+      const dc = destNow != null ? squareCenter(state, destNow) : null;
+      const tx = dc ? (tok[0] + dc[0]) / 2 : tok[0], tz = dc ? (tok[2] + dc[2]) / 2 : tok[2];
+      look[0] += (tx * 0.5 - look[0]) * k;
+      look[2] += (tz * 0.5 - look[2]) * k;
     }
     const e = eye();
     const mp = getMap(state.mapId);
