@@ -99,7 +99,7 @@ for (const [label, viewport] of [['PC', { width: 1280, height: 900 }], ['スマ�
     // 持ち主のいるマスには、利用料のピンが立つ
     const pins = await page.locator('.sq .pin').allTextContents();
     assert(pins.length === owned, `ピンの数が合わない（${pins.length}/${owned}）`);
-    assert(pins.every((x) => /^[\d,]+G$|^休業$/.test(x)), `ピンの文字がおかしい：${pins.join(' ')}`);
+    assert(pins.every((x) => /^♛?([\d,]+G|休業)$/.test(x)), `ピンの文字がおかしい：${pins.join(' ')}`); // 独占中は王冠付き
     assert(errors.length === 0, `エラー：${errors.join(' / ')}`);
     await page.close();
   });
