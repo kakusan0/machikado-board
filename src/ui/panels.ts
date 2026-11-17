@@ -12,7 +12,9 @@ import { h, g } from './dom';
 
 export type Act = (a: Action) => void;
 
-export function renderPlayers(s: GameState): HTMLElement {
+export interface PlayerExtras { status?: (pid: number) => string | null; bubble?: (pid: number) => string | null; you?: number }
+
+export function renderPlayers(s: GameState, x: PlayerExtras = {}): HTMLElement {
   const map = getMap(s.mapId);
   return h('section', { class: 'panel players', 'aria-label': 'プレイヤー' },
     s.players.map((p) => {
@@ -20,7 +22,8 @@ export function renderPlayers(s: GameState): HTMLElement {
       return h('div', { class: `pl${p.id === s.turn ? ' now' : ''}${p.bankrupt ? ' out' : ''}`, style: { '--pc': p.color } },
         h('div', { class: 'row' },
           h('span', { class: 'dot' }),
-          h('b', { class: 'pname' }, p.name),
+          h('b', { class: 'pname' }, p.name, x.you === p.id ? h('small', { class: 'you' }, '（あなた）') : null),
+          x.status?.(p.id) ? h('span', { class: 'status' }, x.status(p.id)) : null,
           h('span', { class: 'lv' }, `段階 ${p.level}`),
           h('span', { class: 'stamps', 'aria-label': 'スタンプ' },
             p.stamps.map((ok, i) => h('span', { class: ok ? 'on' : 'off', title: STAMP_NAMES[i] }, STAMP_ICONS[i]))),
@@ -29,13 +32,14 @@ export function renderPlayers(s: GameState): HTMLElement {
           h('span', {}, '現金 ', h('b', {}, g(p.cash))),
           h('span', {}, '総資産 ', h('b', {}, g(nw))),
         ),
+        x.bubble?.(p.id) ? h('div', { class: 'bubble', role: 'status' }, x.bubble(p.id)) : null,
         h('div', { class: 'bar', role: 'progressbar', 'aria-valuenow': String(Math.round(nw)), 'aria-valuemax': String(map.target) },
           h('i', { style: { width: `${Math.min(100, (nw / map.target) * 100)}%` } })),
       );
     }));
 }
 
-export function renderActions(s: GameState, act: Act, busy: boolean): HTMLElement {
+export function renderActions(s: GameState, act: Act, busy: boolean, mySeat = 0): HTMLElement {
   const map = getMap(s.mapId);
   const p = s.players[s.turn];
   const box = h('section', { class: 'panel actions', 'aria-live': 'polite' });
@@ -48,7 +52,7 @@ export function renderActions(s: GameState, act: Act, busy: boolean): HTMLElemen
         .map((x) => h('li', {}, `${x.name}　${g(netWorth(s, x.id))}`))));
     return box;
   }
-  if (p.cpu || busy) {
+  if (s.turn !== mySeat || busy) {
     box.append(h('p', { class: 'wait' }, `${p.name}の番です…`));
     return box;
   }
@@ -122,14 +126,14 @@ export function renderActions(s: GameState, act: Act, busy: boolean): HTMLElemen
   return box;
 }
 
-export function renderStocks(s: GameState, act: Act, busy: boolean): HTMLElement | null {
+export function renderStocks(s: GameState, act: Act, busy: boolean, mySeat = 0): HTMLElement | null {
   if (s.mode !== 'normal') return null;
   const map = getMap(s.mapId);
   const p = s.players[s.turn];
-  const mine = !p.cpu && !busy;
+  const mine = s.turn === mySeat && !busy;
   const canBuy = mine && canBuyStock(s);
   const canSell = mine && (s.phase === 'stock' || s.phase === 'roll');
-  const me = s.players.find((x) => !x.cpu) ?? p;
+  const me = s.players[mySeat] ?? p;
   return h('section', { class: 'panel stocks', 'aria-label': '株式市場' },
     h('h2', {}, '株式市場'),
     h('table', {},

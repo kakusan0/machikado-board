@@ -19,5 +19,7 @@ jobs:
       - run: npm test
       - name: 画面テスト用のブラウザを入れる
         run: npx playwright install --with-deps chromium
-      - name: 画面テスト（ビルドしてブラウザで遊ぶ）
+      - name: オンライン対戦の結合テスト（wrangler dev に何人かでつないで遊ぶ）
+        run: npm run test:online
+      - name: 画面テスト（ビルドしてブラウザで遊ぶ。オンライン対戦も）
         run: npm run e2e

@@ -10,5 +10,7 @@
     "skipLibCheck": true,
     "types": ["vitest/globals"]
   },
-  "include": ["src", "tests"]
+  "include": ["src", "tests"],
+  // Cloudflare 向けのファイルは tsconfig.worker.json で確認する（型の定義がブラウザと別のため）
+  "exclude": ["src/worker/index.ts", "src/worker/room.ts", "src/worker/matchmaker.ts", "src/worker/worker-configuration.d.ts"]
 }

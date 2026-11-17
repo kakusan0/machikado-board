@@ -1,11 +1,13 @@
-// 画面テスト（Playwright）。ビルド済みの dist を vite preview で配信して、実際のブラウザで遊ぶ
+// 画面テスト（Playwright）。ビルド済みの dist を wrangler dev（オンライン対戦のサーバーつき）で配信して、実際のブラウザで遊ぶ
 // 使い方：npm run e2e
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { chromium } from 'playwright';
 
 const PORT = 4179;
-const BASE = `http://localhost:${PORT}`;
+const BASE = `http://127.0.0.1:${PORT}`;
 const results = [];
 let failed = 0;
 
@@ -20,10 +22,11 @@ async function step(name, fn) {
 }
 function assert(ok, msg) { if (!ok) throw new Error(msg); }
 
-const server = spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort'], { stdio: 'ignore' });
-for (let i = 0; i < 50; i++) {
+const server = spawn('npx', ['wrangler', 'dev', '--port', String(PORT), '--ip', '127.0.0.1', '--persist-to', mkdtempSync(join(tmpdir(), 'mb-e2e-'))],
+  { stdio: 'ignore', detached: true });
+for (let i = 0; i < 150; i++) {
   try { if ((await fetch(BASE)).ok) break; } catch { /* まだ起動中 */ }
-  await new Promise((r) => setTimeout(r, 200));
+  await new Promise((r) => setTimeout(r, 300));
 }
 
 // この作業環境に入っているブラウザがあれば使う（CI では playwright install で入れる）
@@ -137,8 +140,50 @@ await step('遊び方ページ：チャンスカード 20 種とマップの目�
   await page.close();
 });
 
+
+await step('オンライン：部屋を作って合言葉で入り、2 人で対戦できる（相手の画面に操作が届く）', async () => {
+  const errs = [];
+  const ctxA = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const ctxB = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const A = await ctxA.newPage();
+  const B = await ctxB.newPage();
+  for (const p of [A, B]) {
+    p.on('pageerror', (e) => errs.push(e.message));
+    await p.goto(BASE);
+    await p.evaluate((s) => localStorage.setItem('machikado-board/settings-v1', JSON.stringify(s)), { ...base, mapId: 'corner', view: '2d' });
+    await p.reload();
+  }
+  await A.locator('input[aria-label="あなたの名前"]').fill('あい');
+  await A.getByRole('button', { name: '合言葉で部屋を作る' }).click();
+  await A.waitForSelector('.lobby .code');
+  const code = (await A.locator('.lobby .code').textContent()).trim();
+  assert(/^[A-Z2-9]{6}$/.test(code), `合言葉が出ない：${code}`);
+  await B.locator('input[aria-label="あなたの名前"]').fill('びい');
+  await B.locator('input[aria-label="合言葉"]').fill(code);
+  await B.getByRole('button', { name: '合言葉で入る' }).click();
+  await A.waitForSelector('.seats li:nth-child(2)');
+  assert((await A.locator('.seats').textContent()).includes('びい'), '相手の名前が待合室に出ない');
+  await A.getByRole('button', { name: 'この人数で始める' }).click();
+  await A.waitForSelector('.top .online');
+  await B.waitForSelector('.top .online');
+  // 最初の手番は A（席 0）。A がサイコロを振ると、B の画面のできごとに出る
+  await A.getByRole('button', { name: 'サイコロを振る' }).click();
+  await B.waitForFunction(() => document.querySelector('.log')?.textContent?.includes('サイコロは'), null, { timeout: 15000 });
+  // B の画面では A の番なので操作できない
+  assert(await B.getByRole('button', { name: 'サイコロを振る' }).count() === 0, '相手の番なのに B がサイコロを振れる');
+  // 定型メッセージが相手に届く
+  await A.locator('.emotes button').first().click();
+  await B.waitForSelector('.bubble', { timeout: 10000 });
+  // B が再読み込みしても、同じ対戦に戻れる
+  await B.reload();
+  await B.waitForSelector('.top .online', { timeout: 15000 });
+  assert(errs.length === 0, `エラー：${errs.join(' / ')}`);
+  await ctxA.close();
+  await ctxB.close();
+});
+
 await browser.close();
-server.kill();
+try { process.kill(-server.pid, 'SIGTERM'); } catch { /* もう止まっている */ }
 console.log(results.join('\n'));
 console.log(failed ? `\n${failed} 件失敗` : `\nすべて成功（${results.length} 件）`);
 process.exit(failed ? 1 : 0);
