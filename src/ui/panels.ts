@@ -1,7 +1,7 @@
 // 手番の操作・プレイヤー一覧・株式市場・ログ・マスの詳細
 import { arrow, getMap, stopsVia } from '../game/maps';
 import {
-  BUYOUT_MULT, MAX_SHARES, STOCK_LOT, buyQuote, canBuyout, fee, feeRate, investCap, isMonopoly, netWorth, salary,
+  BUYOUT_MULT, MAX_SHARES, STOCK_LOT, buyQuote, canBuyout, fee, feeRate, investCap, investRoom, isMonopoly, netWorth, salary, streetInvestRoom,
   sellQuote, shopAssets, stockAssets, stockPrice, topHolder,
 } from '../game/rules';
 import type { Action, GameState } from '../game/state';
@@ -253,12 +253,13 @@ export function renderStreetInfo(s: GameState, act: Act, busy: boolean, mySeat: 
       h('div', {}, h('dt', {}, '株価'), h('dd', {}, g(stockPrice(s, street)))),
       h('div', {}, h('dt', {}, '需給'), h('dd', { class: s.demand[street] > 1.005 ? 'up' : s.demand[street] < 0.995 ? 'down' : '' }, `×${s.demand[street].toFixed(2)}`)),
       h('div', {}, h('dt', {}, '10 株の代金'), h('dd', {}, g(buy.cost))),
+      h('div', {}, h('dt', {}, '増資の余地'), h('dd', {}, g(streetInvestRoom(s, street)))),
       h('div', {}, h('dt', {}, 'あなたの持ち株'), h('dd', {}, `${me.shares[street]} 株`)),
       h('div', {}, h('dt', {}, '筆頭株主'), h('dd', {}, top != null ? s.players[top].name : 'なし'))),
     h('div', { class: 'btns' }, tradeButtons(s, act, busy, mySeat, street, 1), tradeButtons(s, act, busy, mySeat, street, 5)),
     buyReason(s, busy, mySeat) ? h('p', { class: 'reason' }, buyReason(s, busy, mySeat)) : null,
     h('table', { class: 'shops' },
-      h('thead', {}, h('tr', {}, h('th', {}, 'お店'), h('th', {}, '持ち主'), h('th', {}, '価値'), h('th', {}, '利用料'))),
+      h('thead', {}, h('tr', {}, h('th', {}, 'お店'), h('th', {}, '持ち主'), h('th', {}, '価値'), h('th', {}, '利用料'), h('th', {}, '増資の余地'))),
       h('tbody', {}, shops.map((q) => {
         const pr = s.props[q.id]!;
         const owner = pr.owner != null ? s.players[pr.owner] : null;
@@ -266,8 +267,10 @@ export function renderStreetInfo(s: GameState, act: Act, busy: boolean, mySeat: 
           h('td', {}, q.name),
           h('td', {}, owner ? [h('span', { class: 'dot', style: { background: owner.color } }), owner.name] : '空き店舗'),
           h('td', { class: 'num' }, g(pr.value)),
-          h('td', { class: 'num' }, !owner ? '―' : owner.closed ? '休業' : g(fee(s, q.id))));
-      }))));
+          h('td', { class: 'num' }, !owner ? '―' : owner.closed ? '休業' : g(fee(s, q.id))),
+          h('td', { class: 'num' }, !owner ? '―' : [g(investRoom(s, q.id)), h('small', { class: 'cap' }, `上限 ${g(investCap(s, q.id))}`)]));
+      }))),
+    h('p', { class: 'note' }, '増資の余地：持ち主があと増資できる金額（上限 − いまの価値）。増資されると、その通りの株価が上がります。'));
 }
 
 export function renderStocks(s: GameState, act: Act, busy: boolean, mySeat = 0, o: StockOptions = {}): HTMLElement | null {
@@ -277,8 +280,8 @@ export function renderStocks(s: GameState, act: Act, busy: boolean, mySeat = 0, 
   const shops = (i: number) => map.squares.filter((q) => q.kind === 'shop' && q.street === i);
   const trade = (i: number, lots: number) => tradeButtons(s, act, busy, mySeat, i, lots);
   const head = o.wide
-    ? ['通り', '株価', '需給', '10株の代金', 'お店', '持ち株', '']
-    : ['通り', '株価', '需給', 'あなた', ''];
+    ? ['通り', '株価', '需給', '10株の代金', '増資の余地', 'お店', '持ち株', '']
+    : ['通り', '株価', '増資の余地', 'あなた', ''];
   return h('section', { class: `panel stocks${o.wide ? ' wide' : ''}`, 'aria-label': '株式市場' },
     h('h2', {}, '株式市場'),
     o.onPick ? h('p', { class: 'note' }, '行を押すと、その通りのマスが盤面で点滅します。') : null,
@@ -298,14 +301,15 @@ export function renderStocks(s: GameState, act: Act, busy: boolean, mySeat = 0, 
           h('td', {}, h('span', { class: 'chip', style: { background: st.color } }), st.name,
             top != null ? h('small', { class: 'top', style: { color: s.players[top].color } }, ` 筆頭:${s.players[top].name}`) : null),
           h('td', { class: 'num' }, g(stockPrice(s, i))),
-          h('td', { class: `num ${s.demand[i] > 1.005 ? 'up' : s.demand[i] < 0.995 ? 'down' : ''}` }, `×${s.demand[i].toFixed(2)}`),
+          o.wide ? h('td', { class: `num ${s.demand[i] > 1.005 ? 'up' : s.demand[i] < 0.995 ? 'down' : ''}` }, `×${s.demand[i].toFixed(2)}`) : null,
           o.wide ? h('td', { class: 'num' }, g(buyQuote(s, i, 1).cost)) : null,
+          h('td', { class: 'num', title: 'その通りのお店に、あと増資できる金額の合計' }, g(streetInvestRoom(s, i))),
           o.wide ? h('td', { class: 'num', title: 'あなたのお店／通りのお店の数' }, `${shops(i).filter((q) => s.props[q.id]?.owner === mySeat).length}/${shops(i).length}軒`) : null,
           h('td', { class: 'num' }, `${me.shares[i]} 株`),
           h('td', { class: 'trade' }, o.wide ? h('div', { class: 'grid2' }, trade(i, 1), trade(i, 5)) : trade(i, 1)),
         );
       }))),
-    h('p', { class: 'note' }, '株を買えるのは銀行（止まったとき・通ったとき）と両替所です。10 株単位。売るのは自分の番ならいつでも。利用料が払われるたびに 2 株につき 1G の配当、筆頭株主（50 株以上）は利用料の 10%。'));
+    h('p', { class: 'note' }, '株を買えるのは銀行（止まったとき・通ったとき）と両替所です。10 株単位。売るのは自分の番ならいつでも。利用料が払われるたびに 2 株につき 1G の配当、筆頭株主（50 株以上）は利用料の 10%。「増資の余地」が大きい通りほど、これから増資されて株価が上がる見込みがあります。'));
 }
 
 // 競売の欄：いまの値・一番高い人・まだ降りていない人。自分の番なら入札のボタン

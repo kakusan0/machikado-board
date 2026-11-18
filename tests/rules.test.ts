@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { decide } from '../src/game/ai';
 import { MAPS, getMap } from '../src/game/maps';
 import {
-  adjacencyMult, buyQuote, canBuyout, fee, feeRate, investCap, netWorth, salary, sellQuote, stockPrice, topHolder,
+  adjacencyMult, buyQuote, canBuyout, fee, feeRate, investCap, investRoom, streetInvestRoom, netWorth, salary, sellQuote, stockPrice, topHolder,
 } from '../src/game/rules';
 import type { GameState } from '../src/game/state';
 import { apply, newGame } from '../src/game/turn';
@@ -65,6 +65,19 @@ describe('増資の上限', () => {
     expect(investCap(s, a)).toBe(base * 2);
     own(s, c, 0);
     expect(investCap(s, a)).toBe(base * 3);
+  });
+  it('増資の余地：上限 − いまの価値。通りではお店ごとの合計', () => {
+    const s = game();
+    const [a, b, c] = shopsOf(s, 2);
+    const base = getMap('corner').squares[a].base!;
+    expect(investRoom(s, a)).toBe(0); // 持ち主なし
+    own(s, a, 0); own(s, b, 1);
+    expect(investRoom(s, a)).toBe(investCap(s, a) - s.props[a]!.value);
+    s.props[a]!.value = investCap(s, a); // 上限まで増資した
+    expect(investRoom(s, a)).toBe(0);
+    expect(streetInvestRoom(s, 2)).toBe(investRoom(s, b));
+    expect(investRoom(s, c)).toBe(0);
+    void base;
   });
   it('かんたんでは増資できない', () => {
     const s = game('easy');

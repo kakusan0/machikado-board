@@ -78,6 +78,18 @@ export function investCap(state: GameState, sq: number): number {
   return Math.round(s.base! * (1 + 0.5 * ownedInStreet(state, s.street!, p.owner)));
 }
 
+// あと何 G 増資できるか（上限 − いまの価値）。持ち主のいないお店は 0
+export function investRoom(state: GameState, sq: number): number {
+  const p = state.props[sq];
+  if (!p || p.owner == null) return 0;
+  return Math.max(0, investCap(state, sq) - p.value);
+}
+
+// 通り全体の増資の余地（お店ごとの余地の合計）
+export function streetInvestRoom(state: GameState, street: number): number {
+  return streetSquares(state, street).reduce((a, id) => a + investRoom(state, id), 0);
+}
+
 export function streetValue(state: GameState, street: number): number {
   return streetSquares(state, street).reduce((a, id) => a + (state.props[id]?.value ?? 0), 0);
 }
