@@ -275,6 +275,27 @@ for (const [mapId, view] of [['cross', '3d'], ['twin', '2d'], ['hills', '3d']]) 
   });
 }
 
+await step('競売：自分のお店を競売に掛けると、CPU がせり上げて落札し、代金が入る', async () => {
+  const { page, errors } = await newPage({ width: 1280, height: 900 }, { ...base, mapId: 'corner', view: '2d', cpu: 'hard' });
+  page.on('dialog', (d) => d.accept());
+  await page.getByRole('button', { name: 'はじめる' }).click();
+  await page.evaluate(() => { const k = 'machikado-board/save-v1'; const s = JSON.parse(localStorage.getItem(k)); s.props[1].owner = 0; s.props[1].value = 160; localStorage.setItem(k, JSON.stringify(s)); });
+  await page.reload();
+  await page.getByRole('button', { name: /つづきから/ }).click();
+  const cash0 = await page.locator('.me-bar .nums b').first().textContent();
+  await page.locator('.sq[aria-label="パン工房"]').click();
+  await page.locator('.info button', { hasText: '競売に掛ける' }).click();
+  await page.waitForSelector('.actions h2:has-text("競売")');
+  assert(await page.locator('.sq.auction').count() === 1, '競売中のマスの印がない');
+  await page.waitForSelector('.actions button:has-text("サイコロを振る")', { timeout: 30_000 }); // 競売が終わって元の場面へ
+  const cash1 = await page.locator('.me-bar .nums b').first().textContent();
+  const n = (x) => Number(x.replace(/[^0-9]/g, ''));
+  assert(n(cash1) > n(cash0), `代金が入っていない（${cash0} → ${cash1}）`);
+  assert((await page.locator('.log').textContent()).includes('落札') || (await page.locator('.log').textContent()).includes('銀行が'), 'できごとに競売の結果がない');
+  assert(errors.length === 0, `エラー：${errors.join(' / ')}`);
+  await page.close();
+});
+
 await step('保存と再開：再読み込みで「つづきから」になり、同じ状態に戻る', async () => {
   const { page, errors } = await newPage({ width: 1280, height: 900 }, { ...base, mapId: 'harbor', view: '2d' });
   await page.getByRole('button', { name: 'はじめる' }).click();

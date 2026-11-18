@@ -60,7 +60,7 @@ export function renderBoard(s: GameState, v: BoardView): HTMLElement {
     const mono = s.mode === 'normal' && owner && sq.kind === 'shop' && isMonopoly(s, sq.street!, owner.id);
     const fresh = mono && s.monopoly?.street === sq.street; // この番に独占したばかり
     const cell = h('button', {
-      class: `sq k-${sq.kind}${owner ? ' owned' : ''}${mono ? ' mono' : ''}${fresh ? ' fresh' : ''}${v.selected === sq.id ? ' sel' : ''}${choices.has(sq.id) ? ' choice' : ''}${v.landing?.has(sq.id) ? ' landing' : ''}${v.dest === sq.id ? ' dest' : ''}${v.trail?.includes(sq.id) && v.dest !== sq.id ? ' trail' : ''}${v.highlightStreet != null && sq.street === v.highlightStreet ? ' blink' : ''}`,
+      class: `sq k-${sq.kind}${owner ? ' owned' : ''}${mono ? ' mono' : ''}${fresh ? ' fresh' : ''}${v.selected === sq.id ? ' sel' : ''}${choices.has(sq.id) ? ' choice' : ''}${v.landing?.has(sq.id) ? ' landing' : ''}${v.dest === sq.id ? ' dest' : ''}${s.phase === 'auction' && s.auction?.sq === sq.id ? ' auction' : ''}${v.trail?.includes(sq.id) && v.dest !== sq.id ? ' trail' : ''}${v.highlightStreet != null && sq.street === v.highlightStreet ? ' blink' : ''}`,
       style: {
         gridColumn: String(x + 1), gridRow: String(y + 1),
         '--street': street?.color ?? 'transparent', '--owner': owner?.color ?? 'transparent',
@@ -82,6 +82,7 @@ export function renderBoard(s: GameState, v: BoardView): HTMLElement {
     choices.has(sq.id) && s.pending?.kind === 'direction' ? h('span', { class: 'arrow' }, arrow(map, s.pending.sq, sq.id)) : null,
     v.landing?.has(sq.id) ? h('span', { class: 'land', title: '止まる候補' }, v.landing.get(sq.id)!) : null,
     v.dest === sq.id ? h('span', { class: 'dest-tag' }, v.destText ?? '到着') : null,
+    s.phase === 'auction' && s.auction?.sq === sq.id ? h('span', { class: 'auction-tag' }, s.auction.leader == null ? `競売中 最低${g(s.auction.min)}` : `競売中 ${g(s.auction.price)}`) : null,
     );
     board.append(cell);
   });

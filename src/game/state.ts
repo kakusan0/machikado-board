@@ -60,7 +60,20 @@ export type Pending =
   | { kind: 'direction'; sq: number; options: number[] }
   | { kind: 'bankStock'; sq: number }; // 銀行を通って給料をもらったので、その場で株を買える
 
-export type Phase = 'roll' | 'decide' | 'stock' | 'over';
+export type Phase = 'roll' | 'decide' | 'stock' | 'auction' | 'over';
+
+// 競売（せり上げ）
+export interface Auction {
+  sq: number; // 競売に掛けたお店（空き地の施設も）
+  seller: number;
+  min: number; // 最低価格（価値の半分）
+  price: number; // いまの値（まだ入札がなければ 0）
+  leader: number | null; // いま一番高い人
+  bidder: number; // いま入札するか決める人
+  active: number[]; // まだ降りていない人（席の順）
+  forced: boolean; // お金が足りずに自動で掛けた競売
+  resume: { phase: Phase; pending: Pending | null }; // 終わったら戻る場面
+}
 
 export interface LogEntry {
   round: number;
@@ -89,6 +102,7 @@ export interface GameState {
   deck: number[]; // チャンスカードの山（カード番号）
   lastCard: number | null;
   salary: { player: number; amount: number; level: number } | null;
+  auction: Auction | null;
   monopoly: { player: number; street: number } | null; // この番に通りを独占した人と通り（画面の表示用） // この番にもらった給料（画面の表示用）
   log: LogEntry[];
   winner: number | null;
@@ -98,6 +112,9 @@ export interface GameState {
 export type Action =
   | { type: 'roll' }
   | { type: 'move'; to: number }
+  | { type: 'auction'; sq: number } // 自分のお店を競売に掛ける
+  | { type: 'bid'; raise: number } // 競売で値を上げる（10・50・100）
+  | { type: 'pass' } // 競売から降りる
   | { type: 'buyShop' }
   | { type: 'invest'; sq: number; amount: number }
   | { type: 'buyout' }

@@ -6,7 +6,7 @@ import {
 } from '../game/rules';
 import type { Action, GameState } from '../game/state';
 import { FACILITY_NAMES, STAMP_NAMES } from '../game/state';
-import { canBuyStock, canSellStock, investOptions } from '../game/turn';
+import { bidPrice, canBuyStock, canSellStock, investOptions } from '../game/turn';
 import { STAMP_ICONS } from './board2d';
 import { h, g } from './dom';
 
@@ -101,6 +101,10 @@ export function renderActions(s: GameState, act: Act, busy: boolean, mySeat = 0)
         : s.overReason === 'bankrupt' ? 'だれかが破産したので、総資産で順位を決めました。' : '決められた周回が終わりました。'),
       h('ol', { class: 'rank' }, [...s.players].sort((a, b) => netWorth(s, b.id) - netWorth(s, a.id))
         .map((x) => h('li', {}, `${x.name}　${g(netWorth(s, x.id))}`))));
+    return box;
+  }
+  if (s.phase === 'auction' && s.auction) {
+    box.append(...renderAuction(s, act, busy, mySeat));
     return box;
   }
   if (s.turn !== mySeat || busy) {
@@ -304,7 +308,38 @@ export function renderStocks(s: GameState, act: Act, busy: boolean, mySeat = 0, 
     h('p', { class: 'note' }, '株を買えるのは銀行（止まったとき・通ったとき）と両替所です。10 株単位。売るのは自分の番ならいつでも。利用料が払われるたびに 2 株につき 1G の配当、筆頭株主（50 株以上）は利用料の 10%。'));
 }
 
-export function renderInfo(s: GameState, sqId: number | null): HTMLElement | null {
+// 競売の欄：いまの値・一番高い人・まだ降りていない人。自分の番なら入札のボタン
+function renderAuction(s: GameState, act: Act, busy: boolean, mySeat: number): HTMLElement[] {
+  const au = s.auction!;
+  const map = getMap(s.mapId);
+  const name = map.squares[au.sq].name;
+  const seller = s.players[au.seller];
+  const mine = au.bidder === mySeat && !busy;
+  const me = s.players[mySeat];
+  const out: HTMLElement[] = [
+    h('h2', {}, `競売：${name}`),
+    h('p', {}, `売り手：${seller.name}${au.forced ? '（利用料が払えないため自動で競売）' : ''}・お店の価値 ${g(s.props[au.sq]!.value)}`),
+    h('div', { class: 'auction-board' },
+      h('div', {}, h('small', {}, 'いまの値'), h('b', {}, au.leader == null ? `まだ入札なし（最低 ${g(au.min)}）` : g(au.price))),
+      h('div', {}, h('small', {}, '一番高い人'), h('b', {}, au.leader == null ? '―' : s.players[au.leader].name)),
+      h('div', {}, h('small', {}, 'まだ降りていない人'), h('b', {}, au.active.map((i) => s.players[i].name).join('・') || '―'))),
+  ];
+  if (au.bidder === mySeat && au.seller !== mySeat) {
+    out.push(h('p', { class: 'auction-you' }, mine ? 'あなたの番です。値を上げるか、降りるかを選んでください。' : '…'),
+      h('div', { class: 'btns' },
+        [10, 50, 100].map((r) => {
+          const price = bidPrice(s, r);
+          return h('button', { class: 'btn primary', disabled: !mine || me.cash < price, onclick: () => act({ type: 'bid', raise: r }) },
+            au.leader == null && r === 10 ? `最低価格 ${g(price)} で入札` : `+${r}G（${g(price)}）で入札`);
+        }),
+        h('button', { class: 'btn', disabled: !mine, onclick: () => act({ type: 'pass' }) }, '降りる')));
+  } else {
+    out.push(h('p', { class: 'wait' }, `${s.players[au.bidder].name}が考え中…`));
+  }
+  return out;
+}
+
+export function renderInfo(s: GameState, sqId: number | null, act?: Act, mySeat = 0, busy = false): HTMLElement | null {
   if (sqId == null) return null;
   const map = getMap(s.mapId);
   const sq = map.squares[sqId];
@@ -333,7 +368,15 @@ export function renderInfo(s: GameState, sqId: number | null): HTMLElement | nul
     };
     lines.push(text[sq.kind] ?? '');
   }
-  return h('section', { class: 'panel info' }, h('h2', {}, sq.name), lines.map((l) => h('p', {}, l)));
+  // 自分の番のはじめか終わりなら、自分のお店（施設）を競売に掛けられる
+  let auctionBtn: HTMLElement | null = null;
+  if (act && pr?.owner === mySeat && s.turn === mySeat && !busy && (s.phase === 'roll' || s.phase === 'stock')) {
+    const min = Math.max(10, Math.round(pr.value / 2 / 10) * 10);
+    auctionBtn = h('button', { class: 'btn', onclick: () => {
+      if (confirm(`${sq.name}を競売に掛けますか？（最低価格 ${g(min)}。だれも入札しなければ銀行が ${g(Math.floor(pr.value * 0.75))} で買い取ります）`)) act({ type: 'auction', sq: sqId });
+    } }, `競売に掛ける（最低価格 ${g(min)}）`);
+  }
+  return h('section', { class: 'panel info' }, h('h2', {}, sq.name), lines.map((l) => h('p', {}, l)), auctionBtn);
 }
 
 export function renderLog(s: GameState): HTMLElement {

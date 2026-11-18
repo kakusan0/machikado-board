@@ -47,6 +47,7 @@ export function newGame(o: NewGameOptions): GameState {
     lastCard: null,
     salary: null,
     monopoly: null,
+    auction: null,
     log: [],
     winner: null,
     overReason: null,
@@ -73,6 +74,31 @@ export function apply(prev: GameState, a: Action): GameState {
   const s = structuredClone(prev);
   const p = cur(s);
   switch (a.type) {
+    case 'auction': {
+      // 自分の番のはじめか終わりに、自分のお店を競売に掛ける
+      need((s.phase === 'roll' || s.phase === 'stock') && s.props[a.sq]?.owner === s.turn, a);
+      startAuction(s, a.sq, s.turn, false);
+      break;
+    }
+    case 'bid': {
+      need(s.phase === 'auction' && !!s.auction && [10, 50, 100].includes(a.raise), a);
+      const au = s.auction!;
+      const price = bidPrice(s, a.raise);
+      need(s.players[au.bidder].cash >= price, a);
+      au.price = price;
+      au.leader = au.bidder;
+      log(s, au.bidder, `${s.players[au.bidder].name}が ${price}G で入札`);
+      nextBidder(s);
+      break;
+    }
+    case 'pass': {
+      need(s.phase === 'auction' && !!s.auction, a);
+      const au = s.auction!;
+      au.active = au.active.filter((x) => x !== au.bidder);
+      log(s, au.bidder, `${s.players[au.bidder].name}は降りた`);
+      nextBidder(s);
+      break;
+    }
     case 'roll': {
       need(s.phase === 'roll', a);
       s.dice = 1 + Math.floor(rand(s) * 6);
@@ -189,6 +215,7 @@ export function apply(prev: GameState, a: Action): GameState {
     default:
       throw new Error('unknown action');
   }
+  runDebts(s);
   return s;
 }
 
@@ -392,21 +419,12 @@ function payFee(s: GameState, sq: number) {
 }
 
 // 現金がマイナスなら、お店（安い順に 75%）→ 株の順に自動で売る。それでも足りなければ破産
+// 現金がマイナスになったとき。お店を持っていれば、操作のあとで自動の競売に掛ける（runDebts）。
+// お店がなければ株を売り、それでも足りなければ破産
 function settle(s: GameState, pid: number) {
   const p = s.players[pid];
   if (p.cash >= 0) return;
-  const map = getMap(s.mapId);
-  const owned = s.props.map((pr, i) => ({ pr, i })).filter((x) => x.pr?.owner === pid)
-    .sort((a, b) => a.pr!.value - b.pr!.value);
-  for (const { pr, i } of owned) {
-    if (p.cash >= 0) break;
-    const got = Math.floor(pr!.value * LIQUIDATE_RATE);
-    p.cash += got;
-    pr!.owner = null;
-    pr!.value = map.squares[i].base!;
-    delete pr!.facility;
-    log(s, pid, `${map.squares[i].name}を手放した（${got}G）`);
-  }
+  if (s.props.some((x) => x?.owner === pid)) return;
   for (let st = 0; st < p.shares.length && p.cash < 0; st++) {
     while (p.shares[st] > 0 && p.cash < 0) {
       const q = sellQuote(s, st, 1);
@@ -420,6 +438,85 @@ function settle(s: GameState, pid: number) {
     p.shares = p.shares.map(() => 0);
     log(s, pid, `${p.name}は破産…`);
     endBy(s, 'bankrupt');
+  }
+}
+
+// ---------- 競売 ----------
+// 入札したときの値：最初は最低価格から（+10 で最低価格ちょうど）、そのあとはいまの値に上乗せ
+export function bidPrice(s: GameState, raise: number): number {
+  const au = s.auction!;
+  return au.leader == null ? au.min + raise - 10 : au.price + raise;
+}
+
+// いま操作する人：競売中は入札する人、それ以外は手番の人
+export const actor = (s: GameState) => (s.phase === 'auction' && s.auction ? s.auction.bidder : s.turn);
+
+function startAuction(s: GameState, sq: number, seller: number, forced: boolean) {
+  const map = getMap(s.mapId);
+  const pr = s.props[sq]!;
+  const min = Math.max(10, Math.round(pr.value / 2 / 10) * 10);
+  const n = s.players.length;
+  // 売り手の次の席から順に。破産した人・最低価格を払えない人は入らない
+  const active = Array.from({ length: n - 1 }, (_, k) => (seller + 1 + k) % n)
+    .filter((i) => !s.players[i].bankrupt && s.players[i].cash >= min);
+  s.auction = { sq, seller, min, price: 0, leader: null, bidder: active[0] ?? seller, active, forced, resume: { phase: s.phase, pending: s.pending } };
+  s.phase = 'auction';
+  s.pending = null;
+  log(s, seller, `${s.players[seller].name}が ${map.squares[sq].name} を競売に掛けた（最低 ${min}G${forced ? '・お金が足りないため' : ''}）`);
+  if (!active.length) resolveAuction(s);
+}
+
+// 次に入札するか決める人へ。一番高い人以外が全員降りたら終わり
+function nextBidder(s: GameState) {
+  const au = s.auction!;
+  const others = au.active.filter((x) => x !== au.leader);
+  if (!others.length) return resolveAuction(s);
+  const n = s.players.length;
+  for (let k = 1; k <= n; k++) {
+    const c = (au.bidder + k) % n;
+    if (others.includes(c)) { au.bidder = c; return; }
+  }
+}
+
+function resolveAuction(s: GameState) {
+  const map = getMap(s.mapId);
+  const au = s.auction!;
+  const pr = s.props[au.sq]!;
+  const seller = s.players[au.seller];
+  const name = map.squares[au.sq].name;
+  if (au.leader != null) {
+    const buyer = s.players[au.leader];
+    buyer.cash -= au.price;
+    seller.cash += au.price;
+    pr.owner = buyer.id;
+    log(s, buyer.id, `${buyer.name}が ${name} を ${au.price}G で落札`);
+  } else {
+    const got = Math.floor(pr.value * LIQUIDATE_RATE);
+    seller.cash += got;
+    pr.owner = null;
+    pr.value = map.squares[au.sq].base!;
+    delete pr.facility;
+    log(s, au.seller, `入札なし。銀行が ${name} を ${got}G で買い取った`);
+  }
+  s.phase = au.resume.phase;
+  s.pending = au.resume.pending;
+  s.auction = null;
+  settle(s, au.seller); // お店がなくなってもまだ足りなければ、株を売る・破産
+}
+
+// 操作のあと：現金がマイナスでお店を持つ人がいれば、安いお店から自動で競売に掛ける
+function runDebts(s: GameState) {
+  if (s.phase === 'over' || s.phase === 'auction') return;
+  const n = s.players.length;
+  for (let k = 0; k < n; k++) {
+    const pid = (s.turn + k) % n;
+    const p = s.players[pid];
+    if (p.bankrupt || p.cash >= 0) continue;
+    const cheapest = s.props.map((pr, i) => ({ pr, i })).filter((x) => x.pr?.owner === pid)
+      .sort((a, b) => a.pr!.value - b.pr!.value)[0];
+    if (cheapest) return startAuction(s, cheapest.i, pid, true);
+    settle(s, pid);
+    if (isOverNow(s)) return;
   }
 }
 

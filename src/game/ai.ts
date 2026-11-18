@@ -5,7 +5,7 @@ import {
   BUYOUT_MULT, MAX_SHARES, STOCK_LOT, buyQuote, fee, isMonopoly, ownedInStreet, stockPrice, streetSquares,
 } from './rules';
 import type { Action, CpuLevel, GameState } from './state';
-import { canBuyStock, investOptions } from './turn';
+import { bidPrice, canBuyStock, investOptions } from './turn';
 
 interface Style {
   reserve: number; // 手元に残したい現金（マップの初期資金に対する割合）
@@ -22,6 +22,7 @@ const STYLES: Record<CpuLevel, Style> = {
 };
 
 export function decide(s: GameState): Action {
+  if (s.phase === 'auction' && s.auction) return decideBid(s);
   const p = s.players[s.turn];
   const level: CpuLevel = p.cpu ?? 'normal';
   const st = STYLES[level];
@@ -133,6 +134,25 @@ export function decide(s: GameState): Action {
     return s.phase === 'stock' ? { type: 'endTurn' } : { type: 'skip' };
   }
   return { type: 'skip' };
+}
+
+// 競売：上限の値まで +10 ずつ入札し、超えたら降りる
+function decideBid(s: GameState): Action {
+  const au = s.auction!;
+  const map = getMap(s.mapId);
+  const p = s.players[au.bidder];
+  const level: CpuLevel = p.cpu ?? 'normal';
+  const q = map.squares[au.sq];
+  const value = s.props[au.sq]!.value;
+  let mult = level === 'easy' ? 0.8 : level === 'normal' ? 1.0 : 1.2;
+  if (level === 'hard' && q.kind === 'shop') {
+    const mine = ownedInStreet(s, q.street!, p.id);
+    if (mine >= 1) mult = 1.5;
+    if (mine === streetSquares(s, q.street!).length - 1) mult = 2; // 落札すれば独占
+  }
+  const reserve = map.startCash * STYLES[level].reserve;
+  const limit = Math.min(value * mult, p.cash - reserve);
+  return bidPrice(s, 10) <= limit ? { type: 'bid', raise: 10 } : { type: 'pass' };
 }
 
 // 分かれ道の先を読む：残りの歩数で行ける道すじごとの点数（スタンプ・昇格・止まるマス）

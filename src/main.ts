@@ -2,7 +2,7 @@ import './style.css';
 import { decide } from './game/ai';
 import { MAPS, getMap, landingAfter, landingByDice } from './game/maps';
 import type { Action, CpuLevel, GameState, Mode } from './game/state';
-import { apply, canBuyStock, newGame } from './game/turn';
+import { actor, apply, canBuyStock, newGame } from './game/turn';
 import { OnlineClient, createRoom, findMatch, savedSession, type RoomView } from './net/online';
 import { renderBoard, type BoardView } from './ui/board2d';
 import { createBoard3D, DETAIL_NAMES, DICE_MS, type Board3D, type Detail } from './ui/board3d';
@@ -111,7 +111,7 @@ async function present(prev: GameState, next: GameState, type: Action['type']) {
 async function act(a: Action) {
   if (!state || busy) return;
   if (online) {
-    if (state.turn !== mySeat()) return;
+    if (actor(state) !== mySeat()) return; // 競売中は入札する人
     online.act(a);
     return;
   }
@@ -125,7 +125,7 @@ async function act(a: Action) {
 
 async function cpuStep() {
   if (online || !state || state.phase === 'over' || busy) return;
-  const p = state.players[state.turn];
+  const p = state.players[actor(state)]; // 競売中は入札する人
   if (!p.cpu) return;
   await delay(state.phase === 'roll' ? 650 : 450);
   if (!state || busy || online) return;
@@ -261,7 +261,7 @@ function render() {
           h('div', { class: 'side' },
             online ? renderOnlineBar(s) : null,
             renderActions(s, act, busy, me),
-            renderInfo(s, selected),
+            renderInfo(s, selected, act, me, busy),
             renderStocks(s, act, busy, me),
             renderLog(s)))));
   slideFrom = null;
@@ -407,7 +407,7 @@ function renderMarket(s: GameState): HTMLElement {
       pickStreet != null
         ? renderStreetInfo(s, act, busy, me, pickStreet, selected, () => { pickStreet = null; selected = null; render(); })
         : null,
-      pickedNonShop ? renderInfo(s, selected) : null,
+      pickedNonShop ? renderInfo(s, selected, act, me, busy) : null,
       renderStocks(s, act, busy, me, {
         wide: true, highlight: pickStreet,
         onPick: (st) => { pickStreet = pickStreet === st ? null : st; selected = null; scrollToPick = true; render(); },

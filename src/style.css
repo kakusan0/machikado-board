@@ -333,3 +333,12 @@ legend { font-weight: 900; margin-bottom: 6px; }
 .btn.dir { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; white-space: normal; }
 .btn.dir .go { font-size: 16px; }
 .btn.dir .stop { font-size: 12px; font-weight: 500; opacity: .95; }
+
+/* 競売 */
+.auction-board { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 6px; margin: 8px 0; }
+.auction-board div { background: var(--soft); border-radius: 10px; padding: 6px 10px; display: flex; flex-direction: column; }
+.auction-board small { font-size: 11px; color: var(--sub); }
+.auction-board b { font-size: 15px; font-variant-numeric: tabular-nums; }
+.auction-you { color: var(--ink) !important; font-weight: 700; }
+.sq.auction { border-color: #E0A21B; border-width: 3px; animation: destpulse .6s ease-in-out infinite alternate; }
+.sq .auction-tag { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #C8402F; color: #fff; font-size: 11px; font-weight: 900; padding: 3px 7px; border-radius: 99px; white-space: nowrap; z-index: 3; }

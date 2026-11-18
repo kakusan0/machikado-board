@@ -164,3 +164,34 @@ describe('ゲームの進行', () => {
     expect(JSON.stringify(v)).not.toContain(r.seats[1].token); // 他人のトークンは送らない
   });
 });
+
+describe('競売（オンライン）', () => {
+  it('競売中は入札する人だけが操作でき、時間切れなら代わりに決まる', () => {
+    const r = room();
+    join(r, null, 'a', 0, tok);
+    join(r, null, 'b', 0, tok);
+    start(r, 3, 0);
+    const g = r.game!;
+    const sq = g.props.findIndex((p, i) => p && i > 0);
+    g.props[sq]!.owner = 0;
+    expect(act(r, 0, { type: 'auction', sq }, 10)).toMatchObject({ ok: true });
+    expect(r.game!.phase).toBe('auction');
+    const bidder = r.game!.auction!.bidder; // 売り手の次の席（1 番）
+    expect(bidder).toBe(1);
+    expect(act(r, 0, { type: 'pass' }, 20)).toMatchObject({ ok: false }); // 売り手は入札できない
+    expect(act(r, 1, { type: 'bid', raise: 10 }, 30)).toMatchObject({ ok: true });
+    // 次は CPU の席。時間になれば代わりに決まり、最後は競売が終わる
+    let now = 40;
+    for (let i = 0; i < 50 && r.game!.phase === 'auction'; i++) {
+      const who = r.game!.auction!.bidder;
+      if (r.seats[who].cpu) { now = planWake(r, now)!; wake(r, now); } else act(r, who, { type: 'pass' }, ++now);
+    }
+    expect(r.game!.phase).not.toBe('auction');
+  });
+  it('競売の操作の形', () => {
+    expect(isAction({ type: 'auction', sq: 3 })).toBe(true);
+    expect(isAction({ type: 'bid', raise: 50 })).toBe(true);
+    expect(isAction({ type: 'bid', raise: 7 })).toBe(false);
+    expect(isAction({ type: 'pass' })).toBe(true);
+  });
+});

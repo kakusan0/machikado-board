@@ -191,8 +191,17 @@ describe('昇格と勝利', () => {
   });
 });
 
-describe('破産', () => {
-  it('お店（75%）→株の順に売り、足りなければ破産して終了', () => {
+describe('破産と自動の競売', () => {
+  // 1 の目で sq に止まる状態を作る
+  const rollOne = (s: GameState) => {
+    for (let seed = 0; seed < 1000; seed++) {
+      const t = structuredClone(s);
+      t.rng = seed;
+      if (apply(t, { type: 'roll' }).dice === 1) return apply(t, { type: 'roll' });
+    }
+    throw new Error('not found');
+  };
+  it('利用料が払えないと、安いお店から自動で競売。入札がなければ銀行が 75% で買い取り、まだ足りなければ破産', () => {
     const s = game();
     const sq = shopsOf(s, 3)[0];
     own(s, sq, 1);
@@ -201,20 +210,80 @@ describe('破産', () => {
     own(s, mine, 0);
     s.players[0].cash = 0;
     standBefore(s, sq);
-    let found = false;
-    for (let seed = 0; seed < 500 && !found; seed++) {
-      const t = structuredClone(s);
-      t.rng = seed;
-      const u = apply(t, { type: 'roll' });
-      if (u.dice !== 1) continue;
-      found = true;
-      expect(u.props[mine]!.owner).toBeNull();
-      expect(u.players[0].bankrupt).toBe(true);
-      expect(u.phase).toBe('over');
-      expect(u.overReason).toBe('bankrupt');
-      expect(u.winner).toBe(1);
-    }
-    expect(found).toBe(true);
+    let u = rollOne(s);
+    expect(u.phase).toBe('auction');
+    expect(u.auction).toMatchObject({ sq: mine, seller: 0, forced: true, leader: null });
+    while (u.phase === 'auction') u = apply(u, { type: 'pass' }); // 全員降りる
+    expect(u.props[mine]!.owner).toBeNull();
+    expect(u.players[0].bankrupt).toBe(true);
+    expect(u.phase).toBe('over');
+    expect(u.overReason).toBe('bankrupt');
+    expect(u.winner).toBe(1);
+  });
+  it('自動の競売で落札されて足りたら、元の場面（ターンの終わり）に戻る', () => {
+    const s = game();
+    const sq = shopsOf(s, 3)[0];
+    own(s, sq, 1);
+    s.props[sq]!.value = 300; // 利用料 45G
+    const mine = shopsOf(s, 0)[0];
+    own(s, mine, 0);
+    s.players[0].cash = 10;
+    standBefore(s, sq);
+    let u = rollOne(s);
+    expect(u.phase).toBe('auction');
+    expect(u.auction!.resume.phase).toBe('stock');
+    const first = u.auction!.bidder;
+    u = apply(u, { type: 'bid', raise: 50 }); // 最低価格 +40G で入札
+    while (u.phase === 'auction') u = apply(u, { type: 'pass' });
+    expect(u.props[mine]!.owner).toBe(first);
+    expect(u.players[0].cash).toBeGreaterThanOrEqual(0);
+    expect(u.phase).toBe('stock');
+    expect(u.turn).toBe(0);
+  });
+});
+
+describe('自分で競売に掛ける', () => {
+  const ready = () => {
+    const s = game();
+    const sq = shopsOf(s, 1)[0];
+    own(s, sq, 0);
+    s.props[sq]!.value = 200;
+    s.phase = 'stock';
+    return { s, sq };
+  };
+  it('せり上げで一番高い人が落札し、代金は売り手へ', () => {
+    const { s, sq } = ready();
+    let t = apply(s, { type: 'auction', sq });
+    expect(t.auction).toMatchObject({ seller: 0, min: 100, bidder: 1, active: [1, 2, 3] });
+    t = apply(t, { type: 'bid', raise: 10 }); // 1 番：100G
+    expect(t.auction).toMatchObject({ price: 100, leader: 1, bidder: 2 });
+    t = apply(t, { type: 'bid', raise: 50 }); // 2 番：150G
+    t = apply(t, { type: 'pass' }); // 3 番：降りる
+    expect(t.auction).toMatchObject({ bidder: 1, active: [1, 2] });
+    t = apply(t, { type: 'bid', raise: 100 }); // 1 番：250G
+    t = apply(t, { type: 'pass' }); // 2 番：降りる → 1 番が落札
+    expect(t.phase).toBe('stock');
+    expect(t.props[sq]!.owner).toBe(1);
+    expect(t.players[1].cash).toBe(s.players[1].cash - 250);
+    expect(t.players[0].cash).toBe(s.players[0].cash + 250);
+  });
+  it('だれも入札しなければ、銀行が価値の 75% で買い取る', () => {
+    const { s, sq } = ready();
+    let t = apply(s, { type: 'auction', sq });
+    while (t.phase === 'auction') t = apply(t, { type: 'pass' });
+    expect(t.props[sq]!.owner).toBeNull();
+    expect(t.players[0].cash).toBe(s.players[0].cash + 150);
+  });
+  it('人のお店・現金を超える入札・競売中のほかの操作は弾く', () => {
+    const { s, sq } = ready();
+    const other = shopsOf(s, 2)[0];
+    own(s, other, 1);
+    expect(() => apply(s, { type: 'auction', sq: other })).toThrow();
+    let t = apply(s, { type: 'auction', sq });
+    t.players[1].cash = 50;
+    expect(() => apply(t, { type: 'bid', raise: 10 })).toThrow(); // 100G 払えない
+    expect(() => apply(t, { type: 'endTurn' })).toThrow();
+    expect(() => apply(t, { type: 'bid', raise: 30 })).toThrow(); // 上げ幅は 10・50・100 だけ
   });
 });
 
@@ -234,7 +303,8 @@ describe('CPU だけで 100 試合', () => {
         s = apply(s, decide(s));
         if (++steps > 20000) throw new Error(`game ${g} が終わらない`);
         for (const p of s.players) {
-          if (!p.bankrupt) expect(p.cash).toBeGreaterThanOrEqual(0);
+          // 競売中の売り手（お金が足りずに自動で掛けた）だけは、一時的にマイナスのことがある
+          if (!p.bankrupt && !(s.phase === 'auction' && s.auction?.seller === p.id)) expect(p.cash).toBeGreaterThanOrEqual(0);
           for (const n of p.shares) expect(n % 10 === 0 && n >= 0 && n <= 500).toBe(true);
         }
         for (const d of s.demand) expect(d >= 0.5 - 1e-9 && d <= 1.8 + 1e-9).toBe(true);

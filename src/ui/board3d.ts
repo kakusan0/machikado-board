@@ -424,6 +424,18 @@ export function createBoard3D(initial: Detail): Board3D | null {
       destNow = v.dest;
     } else destNow = null;
     el.dataset.dest = destNow != null ? String(destNow) : '';
+    // 競売中のお店：赤い輪と「競売中 〇〇G」の札
+    if (s.phase === 'auction' && s.auction) {
+      const au = s.auction;
+      const c = squareCenter(s, au.sq);
+      const pulse = 1 + Math.sin(t / 160) * 0.1;
+      overlay.push({ mesh: M.plane, p: [c[0], 0.083, c[2]], s: [1.1 * pulse, 1, 1.1 * pulse], r: 0, c: [1, 1, 1],
+        tex: r.tex('ring:#C8402F', () => T.ring('#C8402F'), false), uvs: [1, 1], alpha: 1, flat: 1 });
+      const text = au.leader == null ? `競売 最低${au.min}G` : `競売中 ${au.price}G`;
+      const sc = Math.min(1.7, Math.max(1, 640 / Math.max(1, canvas.clientWidth)));
+      labels.push({ mesh: M.card, p: [c[0], labelHeight(s, au.sq), c[2]], s: [0.8 * sc, 0.4 * sc, 1], r: cam.yaw, c: [1, 1, 1],
+        tex: r.tex(`sign:pin:#C8402F:${text}:`, () => T.pinLabel(text, '#C8402F'), false), uvs: [1, 1], flat: 0.4, onTop: true });
+    }
     // 分かれ道で選べるマス
     for (const c0 of v.choices ?? []) {
       const c = squareCenter(s, c0);

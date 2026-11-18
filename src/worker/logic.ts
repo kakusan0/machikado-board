@@ -2,7 +2,7 @@
 import { decide } from '../game/ai';
 import { getMap, MAPS } from '../game/maps';
 import type { Action, CpuLevel, GameState, Mode } from '../game/state';
-import { apply, newGame } from '../game/turn';
+import { actor, apply, newGame } from '../game/turn';
 import { NG_WORDS } from './ngwords';
 
 export const MAX_SEATS = 4;
@@ -155,7 +155,7 @@ export type ActResult = { ok: true } | { ok: false; error: string };
 export function act(room: Room, seat: number, action: Action, now: number): ActResult {
   const s = room.game;
   if (!s || s.phase === 'over') return { ok: false, error: 'ゲームが進行していません' };
-  if (seat !== s.turn) return { ok: false, error: 'あなたの番ではありません' };
+  if (seat !== actor(s)) return { ok: false, error: 'あなたの番ではありません' }; // 競売中は入札する人
   if (!isAction(action)) return { ok: false, error: '操作の形が正しくありません' };
   try {
     room.game = apply(s, action);
@@ -172,7 +172,7 @@ export function autoStep(room: Room, now: number): boolean {
   if (!s || s.phase === 'over') return false;
   const a = decide(s);
   room.game = apply(s, a);
-  afterChange(room, s.turn, a.type, now);
+  afterChange(room, actor(s), a.type, now);
   return true;
 }
 
@@ -200,7 +200,7 @@ export function planWake(room: Room, now: number, fast = false): number | null {
   if (!s) at = autoStartAt(room);
   else if (s.phase === 'over') at = null;
   else {
-    const seat = room.seats[s.turn];
+    const seat = room.seats[actor(s)];
     const wait = animationMs(room, fast);
     if (seat.cpu) at = now + wait + (fast ? 0 : 450);
     else if (!seat.connected) at = now + wait + (fast ? 0 : 1200);
@@ -258,7 +258,7 @@ export function viewFor(room: Room, seat: number, now: number): RoomView {
     autoStartIn: at != null ? Math.max(0, at - now) : null,
     game: room.game ? sanitize(room.game) : null,
     last: room.last,
-    remainMs: room.deadline != null && room.game && !room.seats[room.game.turn].cpu ? Math.max(0, room.deadline - now) : null,
+    remainMs: room.deadline != null && room.game && !room.seats[actor(room.game)].cpu ? Math.max(0, room.deadline - now) : null,
   };
 }
 
@@ -268,7 +268,9 @@ export function isAction(a: unknown): a is Action {
   if (!a || typeof a !== 'object') return false;
   const x = a as Record<string, unknown>;
   switch (x.type) {
-    case 'roll': case 'buyShop': case 'buyout': case 'skip': case 'endTurn': return true;
+    case 'roll': case 'buyShop': case 'buyout': case 'skip': case 'endTurn': case 'pass': return true;
+    case 'auction': return int(x.sq);
+    case 'bid': return x.raise === 10 || x.raise === 50 || x.raise === 100;
     case 'move': return int(x.to);
     case 'invest': return int(x.sq) && typeof x.amount === 'number' && Number.isFinite(x.amount) && x.amount > 0;
     case 'buyLot': return x.facility === 'yatai' || x.facility === 'ryogae';
