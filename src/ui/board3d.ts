@@ -18,6 +18,7 @@ export interface Board3D {
   el: HTMLElement;
   update(s: GameState, v: BoardView): void;
   setDetail(d: Detail): void;
+  resetView(): void;
   stats(): { triangles: number; textures: number; items: number };
   destroy(): void;
 }
@@ -72,7 +73,12 @@ export function createBoard3D(initial: Detail): Board3D | null {
   let signature = '';
   let vp: number[] = [];
   let lastTris = 0;
-  const cam = { yaw: 0.65 + Math.PI, pitch: 0.95, dist: 9 };
+  // 基本の向き：地図の上が画面の上（2D の盤面・分かれ道のボタンの ↑↓←→ と同じ向き）
+  const HOME = { yaw: 0, pitch: 0.95 };
+  const cam = { yaw: HOME.yaw, pitch: HOME.pitch, dist: 9 };
+  let homeDist = 9;
+  let camAnim: { t0: number; yaw: number; pitch: number; dist: number } | null = null;
+  let wasMine = false, hadChoices = false;
   let camFor = '';
   let fontsReady = false;
   const disp: { pos: Vec3; from: Vec3; to: Vec3; t0: number }[] = [];
@@ -530,6 +536,18 @@ export function createBoard3D(initial: Detail): Board3D | null {
       look[0] += (tx * 0.5 - look[0]) * k;
       look[2] += (tz * 0.5 - look[2]) * k;
     }
+    // 視点を戻す動き（向きは近い回り方で）
+    if (camAnim) {
+      const k = Math.min(1, (performance.now() - camAnim.t0) / 650);
+      const e2 = 1 - Math.pow(1 - k, 3);
+      let dy = (HOME.yaw - camAnim.yaw) % (Math.PI * 2);
+      if (dy > Math.PI) dy -= Math.PI * 2; else if (dy < -Math.PI) dy += Math.PI * 2;
+      cam.yaw = camAnim.yaw + dy * e2;
+      cam.pitch = camAnim.pitch + (HOME.pitch - camAnim.pitch) * e2;
+      cam.dist = camAnim.dist + (homeDist - camAnim.dist) * e2;
+      if (k >= 1) { cam.yaw = HOME.yaw; camAnim = null; }
+    }
+    el.dataset.yaw = (((cam.yaw % (Math.PI * 2)) + Math.PI * 3) % (Math.PI * 2) - Math.PI).toFixed(2); // 画面テスト用（-π〜π）
     const e = eye();
     const mp = getMap(state.mapId);
     const n = Math.max(mp.width, mp.height);
@@ -562,6 +580,7 @@ export function createBoard3D(initial: Detail): Board3D | null {
   let moved = 0;
   let pinch = 0;
   canvas.addEventListener('pointerdown', (e) => {
+    camAnim = null; // 自分で動かし始めたら、戻す動きはやめる
     canvas.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pointers.size === 1) moved = 0;
@@ -631,16 +650,30 @@ export function createBoard3D(initial: Detail): Board3D | null {
   // 看板の文字は、フォントが届いたら描き直す
   document.fonts?.ready.then(() => { fontsReady = true; r.dropTextures('sign:'); signature = ''; if (state && view) api.update(state, view); }).catch(() => {});
 
+  function resetView() {
+    camAnim = { t0: performance.now(), yaw: cam.yaw, pitch: cam.pitch, dist: cam.dist };
+    kick();
+  }
+  const resetBtn = h('button', { class: 'reset-view', type: 'button', onclick: resetView }, '視点を戻す');
+  el.append(resetBtn);
+
   const api: Board3D = {
     el,
+    resetView,
     update(s, v) {
       state = s; view = v;
       if (camFor !== s.mapId) {
         const mp = getMap(s.mapId);
         const n = Math.max(mp.width, mp.height);
         camFor = s.mapId;
-        cam.dist = n * 1.55;
+        homeDist = n * 1.55;
+        cam.dist = homeDist;
       }
+      // 自分の番が来たとき・分かれ道で方向を選ぶときは、視点を基本の向きに戻す（ボタンの左右と画面の左右をそろえる）
+      const mine = s.turn === v.me && s.phase !== 'over';
+      const ch = !!v.choices?.length;
+      if ((mine && !wasMine) || (ch && !hadChoices)) resetView();
+      wasMine = mine; hadChoices = ch;
       const sg = sig(s);
       if (sg !== signature) { signature = sg; build(s); }
       renderHud(s, v);

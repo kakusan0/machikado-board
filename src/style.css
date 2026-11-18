@@ -343,3 +343,4 @@ legend { font-weight: 900; margin-bottom: 6px; }
 .sq.auction { border-color: #E0A21B; border-width: 3px; animation: destpulse .6s ease-in-out infinite alternate; }
 .sq .auction-tag { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #C8402F; color: #fff; font-size: 11px; font-weight: 900; padding: 3px 7px; border-radius: 99px; white-space: nowrap; z-index: 3; }
 .street-info td small.cap { display: block; font-size: 11px; color: var(--sub, #6b6b80); font-weight: 400; }
+.board3d .reset-view { position: absolute; left: 10px; bottom: 10px; min-height: 40px; padding: 0 14px; border-radius: 99px; border: 1px solid rgba(27,35,64,.25); background: rgba(255,255,255,.9); color: #1B2340; font-weight: 700; font-size: 13px; cursor: pointer; }

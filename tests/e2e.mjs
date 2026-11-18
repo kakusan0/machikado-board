@@ -146,6 +146,35 @@ for (const [label, viewport] of [['PC', { width: 1280, height: 900 }], ['スマ�
   });
 }
 
+await step('3D：回した視点は「視点を戻す」と自分の番の始まりで基本の向き（地図の上が画面の上）に戻る', async () => {
+  const { page, errors } = await newPage({ width: 1280, height: 900 }, { ...base, mapId: 'corner', view: '3d' });
+  await page.getByRole('button', { name: 'はじめる' }).click();
+  const yaw = () => page.evaluate(() => Number(document.querySelector('.board3d').dataset.yaw));
+  await page.waitForFunction(() => document.querySelector('.board3d')?.dataset.yaw != null);
+  const drag = async () => {
+    const box = await page.locator('.board3d canvas').boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + 220, box.y + box.height / 2, { steps: 8 });
+    await page.mouse.up();
+  };
+  await page.waitForTimeout(800);
+  await drag();
+  assert(Math.abs(await yaw()) > 0.5, `回っていない ${await yaw()}`);
+  await page.getByRole('button', { name: '視点を戻す' }).click();
+  await page.waitForTimeout(900);
+  assert(Math.abs(await yaw()) < 0.02, `ボタンで戻らない ${await yaw()}`);
+  // 回したまま自分の番を終える → 相手の番のあと、次の自分の番が来たら戻る
+  await drag();
+  assert(Math.abs(await yaw()) > 0.5, '回っていない（2 回目）');
+  await playMyTurn(page, { buy: false });
+  await page.getByRole('button', { name: 'サイコロを振る' }).waitFor({ timeout: 30000 });
+  await page.waitForTimeout(900);
+  assert(Math.abs(await yaw()) < 0.02, `自分の番で戻らない ${await yaw()}`);
+  assert(errors.length === 0, `エラー：${errors.join(' / ')}`);
+  await page.close();
+});
+
 await step('株式市場タブ：銀行で自動で開き、行を押すと 2D の通りが点滅し、終えると盤面に戻る。銀行以外では開かない', async () => {
   const { page, errors } = await newPage({ width: 1280, height: 900 }, { ...base, mapId: 'corner', view: '3d' });
   await page.getByRole('button', { name: 'はじめる' }).click();
